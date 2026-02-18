@@ -30,6 +30,7 @@ class BetRecommendation:
     model_odds: int  # American odds
     edge: float  # p_model - p_market
     edge_kelly: float  # Kelly edge
+    dog_variance_penalty: float  # Underdog probability coefficient
     stake_fraction: float  # Fraction of bankroll
     stake: float  # Actual stake amount
     adjusted_stake: float  # Adjusted stake with probability-based confidence

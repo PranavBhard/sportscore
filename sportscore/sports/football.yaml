@@ -1,0 +1,17 @@
+meta:
+  sport_id: football
+  display_name: Football
+
+season:
+  # Sport-level fallback for excluded game types.
+  # League YAMLs override this (e.g., CFB might exclude differently).
+  default_exclude_game_types:
+    - preseason
+
+features:
+  # The sport-level feature registry is defined in Python
+  # (sport app's FeatureRegistry subclass with STAT_DEFINITIONS).
+  # League YAMLs can add league-specific features via statistics list.
+  #
+  # Valid stat names for football:
+  # See football/features/registry.py FeatureRegistry.STAT_DEFINITIONS

@@ -1,0 +1,21 @@
+meta:
+  sport_id: basketball
+  display_name: Basketball
+
+season:
+  # Sport-level fallback for excluded game types.
+  # League YAMLs override this (e.g., CBB has exclude_game_types: []).
+  default_exclude_game_types:
+    - preseason
+    - allstar
+
+features:
+  # The sport-level feature registry is defined in Python
+  # (sport app's FeatureRegistry subclass with STAT_DEFINITIONS).
+  # League YAMLs can add league-specific features via extra_feature_stats.
+  #
+  # Feature format is universal: stat|period|weight|perspective
+  # (defined by sportscore's BaseFeatureRegistry).
+  #
+  # Valid stat names for basketball:
+  # See bball/features/registry.py FeatureRegistry.STAT_DEFINITIONS

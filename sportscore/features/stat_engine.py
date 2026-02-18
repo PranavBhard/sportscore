@@ -3,9 +3,13 @@ Stat Engine - Sport-agnostic feature computation engine.
 
 Implements the 4-layer computation model:
   Layer 1: Raw stat extraction    (per-game, per-team from game docs)
-  Layer 2: Time period windowing  (season, last_N, career, none)
-  Layer 3: Calc weight            (raw=aggregate, avg=per-game average)
+  Layer 2: Time period windowing  (season, last_N, games_N, days_N, months_N, career, none)
+  Layer 3: Calc weight            (raw=aggregate, avg=per-game average, std=standard deviation)
   Layer 4: Perspective            (diff, home, away, none)
+
+Feature names: stat|period|weight|perspective[|side]
+  - 4-part: standard feature
+  - 5-part with "side" suffix: filter to games where team was home/away
 
 Complex stats use type=custom + Python handler functions dispatched by name.
 """
@@ -15,6 +19,20 @@ from math import exp
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from sportscore.features.base_registry import StatDefinition
+
+
+def _date_minus_days(date_str: str, n: int) -> str:
+    """YYYY-MM-DD string minus N days."""
+    from datetime import datetime, timedelta
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    return (dt - timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def _date_minus_months(date_str: str, n: int) -> str:
+    """YYYY-MM-DD string minus N months (approximate: 30 days per month)."""
+    from datetime import datetime, timedelta
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    return (dt - timedelta(days=n * 30)).strftime("%Y-%m-%d")
 
 
 class StatEngine:
@@ -32,11 +50,13 @@ class StatEngine:
         stat_definitions: Dict[str, StatDefinition],
         custom_handlers: Optional[Dict[str, Callable]] = None,
         recency_alpha: float = 0.0,
+        recency_mode: str = "week",
         valid_time_periods: Optional[Set[str]] = None,
     ):
         self.stat_definitions = stat_definitions
         self.custom_handlers = custom_handlers or {}
         self.recency_alpha = recency_alpha
+        self.recency_mode = recency_mode  # "week" (football) or "date" (basketball)
         self.valid_time_periods = valid_time_periods or {
             "season", "last_3", "last_5", "last_8", "career", "none",
         }
@@ -54,17 +74,27 @@ class StatEngine:
         away_games: List[Dict],
         context: Optional[Dict[str, Any]] = None,
     ) -> Optional[float]:
-        """Compute a single feature value from a pipe-delimited feature name."""
+        """Compute a single feature value from a pipe-delimited feature name.
+
+        Supports 4-part (stat|period|weight|perspective) and 5-part
+        (stat|period|weight|perspective|side) feature names.
+        """
         parts = feature_name.split("|")
-        if len(parts) != 4:
+        if len(parts) == 5:
+            stat_name, time_period, calc_weight, perspective, side_str = parts
+            has_side = (side_str == "side")
+        elif len(parts) == 4:
+            stat_name, time_period, calc_weight, perspective = parts
+            has_side = False
+        else:
             return None
 
-        stat_name, time_period, calc_weight, perspective = parts
         stat_def = self.stat_definitions.get(stat_name)
         if stat_def is None:
             return None
 
-        ctx = context or {}
+        ctx = dict(context or {})
+        ctx["has_side"] = has_side
 
         # Custom handler dispatch
         if stat_def.stat_type == "custom" and stat_def.handler:
@@ -80,14 +110,20 @@ class StatEngine:
         # Standard computation via 4-layer model
         year = ctx.get("year", 0)
         week = ctx.get("week", 0)
+        reference_date = ctx.get("reference_date")
 
         # Layer 2: window games
-        home_windowed = self._window_games(home_games, time_period)
-        away_windowed = self._window_games(away_games, time_period)
+        home_windowed = self._window_games(home_games, time_period, reference_date)
+        away_windowed = self._window_games(away_games, time_period, reference_date)
+
+        # Side filter: keep only games where team was actually home/away
+        if has_side:
+            home_windowed = [g for g in home_windowed if g.get("homeTeam", {}).get("name") == home_team]
+            away_windowed = [g for g in away_windowed if g.get("awayTeam", {}).get("name") == away_team]
 
         # Layer 1+3: extract and aggregate
-        home_val = self._aggregate_stat(home_windowed, home_team, stat_def, calc_weight, year, week)
-        away_val = self._aggregate_stat(away_windowed, away_team, stat_def, calc_weight, year, week)
+        home_val = self._aggregate_stat(home_windowed, home_team, stat_def, calc_weight, year, week, ctx)
+        away_val = self._aggregate_stat(away_windowed, away_team, stat_def, calc_weight, year, week, ctx)
 
         # Layer 4: perspective
         return self._apply_perspective(home_val, away_val, perspective)
@@ -173,15 +209,45 @@ class StatEngine:
     # Layer 2: Time period windowing
     # =========================================================================
 
-    def _window_games(self, games: List[Dict], time_period: str) -> List[Dict]:
-        """Slice games list according to the time period."""
+    def _window_games(self, games: List[Dict], time_period: str,
+                      reference_date: str = None) -> List[Dict]:
+        """Slice games list according to the time period.
+
+        Supports:
+          - season, none, career: return all games
+          - last_N: last N games (football-style)
+          - games_N: last N games (basketball-style alias)
+          - days_N: games within last N days (requires reference_date)
+          - months_N: games within last N months (requires reference_date)
+        """
         if time_period in ("season", "none", "career"):
             return games
 
-        match = re.match(r"last_(\d+)", time_period)
+        # games_N — last N games (basketball's primary windowing)
+        match = re.match(r"games_(\d+)$", time_period)
         if match:
             n = int(match.group(1))
             return games[-n:] if len(games) > n else games
+
+        # last_N — existing pattern (football)
+        match = re.match(r"last_(\d+)$", time_period)
+        if match:
+            n = int(match.group(1))
+            return games[-n:] if len(games) > n else games
+
+        # days_N — games within last N days (requires reference_date)
+        match = re.match(r"days_(\d+)$", time_period)
+        if match and reference_date:
+            n_days = int(match.group(1))
+            cutoff = _date_minus_days(reference_date, n_days)
+            return [g for g in games if g.get("date", "") >= cutoff]
+
+        # months_N — games within last N months (requires reference_date)
+        match = re.match(r"months_(\d+)$", time_period)
+        if match and reference_date:
+            n_months = int(match.group(1))
+            cutoff = _date_minus_months(reference_date, n_months)
+            return [g for g in games if g.get("date", "") >= cutoff]
 
         return games
 
@@ -197,6 +263,7 @@ class StatEngine:
         calc_weight: str,
         year: int,
         week: int,
+        context: Optional[Dict] = None,
     ) -> Optional[float]:
         """Route to the correct aggregation method based on stat definition."""
         if not games:
@@ -204,19 +271,32 @@ class StatEngine:
 
         # Rate stats with numerator/denominator
         if stat_def.numerator and stat_def.denominator:
-            return self._compute_rate_aggregate(games, team_name, stat_def, calc_weight, year, week)
+            return self._compute_rate_aggregate(games, team_name, stat_def, calc_weight, year, week, context)
 
         # Pre-computed rate field (e.g. qbRTG)
         if stat_def.precomputed_field:
-            return self._compute_precomputed_aggregate(games, team_name, stat_def, calc_weight, year, week)
+            return self._compute_precomputed_aggregate(games, team_name, stat_def, calc_weight, year, week, context)
 
         # Basic stats (formula, db_fields, db_field)
-        return self._compute_basic_aggregate(games, team_name, stat_def, calc_weight, year, week)
+        return self._compute_basic_aggregate(games, team_name, stat_def, calc_weight, year, week, context)
 
     def _compute_basic_aggregate(
-        self, games, team_name, stat_def, calc_weight, year, week
+        self, games, team_name, stat_def, calc_weight, year, week,
+        context=None,
     ) -> Optional[float]:
-        """Aggregate a basic stat: raw=weighted sum, avg=weighted average."""
+        """Aggregate a basic stat: raw=weighted sum, avg=weighted average, std=standard deviation."""
+        if calc_weight == "std":
+            values = []
+            for game in games:
+                val = self._extract_basic_value(game, team_name, stat_def)
+                if val is not None:
+                    values.append(val)
+            if len(values) < 2:
+                return None
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+            return variance ** 0.5
+
         total = 0.0
         weight_sum = 0.0
 
@@ -225,7 +305,7 @@ class StatEngine:
             if val is None:
                 continue
 
-            w = self._get_recency_weight(week, game, year)
+            w = self._get_recency_weight(week, game, year, context)
             total += val * w
             weight_sum += w
 
@@ -238,9 +318,22 @@ class StatEngine:
         return total / weight_sum
 
     def _compute_rate_aggregate(
-        self, games, team_name, stat_def, calc_weight, year, week
+        self, games, team_name, stat_def, calc_weight, year, week,
+        context=None,
     ) -> Optional[float]:
-        """Aggregate a rate stat: raw=sum(num)/sum(denom), avg=avg of per-game rates."""
+        """Aggregate a rate stat: raw=sum(num)/sum(denom), avg=avg of per-game rates, std=std of per-game rates."""
+        if calc_weight == "std":
+            values = []
+            for game in games:
+                num, denom = self._extract_rate_components(game, team_name, stat_def)
+                if num is not None and denom and denom != 0:
+                    values.append(num / denom)
+            if len(values) < 2:
+                return None
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+            return variance ** 0.5
+
         if calc_weight == "raw":
             num_sum = 0.0
             denom_sum = 0.0
@@ -250,7 +343,7 @@ class StatEngine:
                 if num is None:
                     continue
 
-                w = self._get_recency_weight(week, game, year)
+                w = self._get_recency_weight(week, game, year, context)
                 num_sum += num * w
                 denom_sum += denom * w
 
@@ -268,7 +361,7 @@ class StatEngine:
                     continue
 
                 rate = num / denom
-                w = self._get_recency_weight(week, game, year)
+                w = self._get_recency_weight(week, game, year, context)
                 rate_sum += rate * w
                 weight_sum += w
 
@@ -277,9 +370,23 @@ class StatEngine:
             return rate_sum / weight_sum
 
     def _compute_precomputed_aggregate(
-        self, games, team_name, stat_def, calc_weight, year, week
+        self, games, team_name, stat_def, calc_weight, year, week,
+        context=None,
     ) -> Optional[float]:
-        """Aggregate a pre-computed per-game rate field (always returns weighted avg)."""
+        """Aggregate a pre-computed per-game rate field."""
+        if calc_weight == "std":
+            values = []
+            for game in games:
+                team_data, _, _ = self._get_team_data(game, team_name)
+                val = team_data.get(stat_def.precomputed_field)
+                if val is not None:
+                    values.append(float(val))
+            if len(values) < 2:
+                return None
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+            return variance ** 0.5
+
         total = 0.0
         weight_sum = 0.0
 
@@ -289,7 +396,7 @@ class StatEngine:
             if val is None:
                 continue
 
-            w = self._get_recency_weight(week, game, year)
+            w = self._get_recency_weight(week, game, year, context)
             total += float(val) * w
             weight_sum += w
 
@@ -321,11 +428,32 @@ class StatEngine:
     # Recency weighting
     # =========================================================================
 
-    def _get_recency_weight(self, current_week: int, game: Dict, current_year: int) -> float:
-        """Compute exponential recency weight for a game."""
+    def _get_recency_weight(self, current_week: int, game: Dict, current_year: int,
+                            context: Optional[Dict] = None) -> float:
+        """Compute exponential recency weight for a game.
+
+        Supports two modes:
+          - "week" (default/football): weight by weeks_ago
+          - "date" (basketball): weight by days_ago using game['date'] and context['reference_date']
+        """
         if self.recency_alpha <= 0:
             return 1.0
 
+        if self.recency_mode == "date":
+            game_date = game.get("date", "")
+            ref_date = (context or {}).get("reference_date", "")
+            if game_date and ref_date:
+                from datetime import datetime
+                try:
+                    d1 = datetime.strptime(game_date, "%Y-%m-%d")
+                    d2 = datetime.strptime(ref_date, "%Y-%m-%d")
+                    days_ago = max((d2 - d1).days, 0)
+                    return exp(-self.recency_alpha * days_ago)
+                except (ValueError, TypeError):
+                    return 1.0
+            return 1.0
+
+        # Week-based mode (football default)
         game_week = game.get("_week", game.get("week", current_week))
         game_year = game.get("_year", game.get("year", current_year))
 

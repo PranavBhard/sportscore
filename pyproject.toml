@@ -31,6 +31,9 @@ all = [
     "sportscore[ml,market]",
 ]
 
+[project.scripts]
+sportscore = "sportscore.cli.main:main"
+
 [tool.setuptools.package-data]
 sportscore = ["sports/*.yaml"]
 

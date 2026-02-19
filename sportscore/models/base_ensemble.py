@@ -169,13 +169,19 @@ class BaseEnsemblePredictor(ABC):
         meta_scaler_path = self.ensemble_config.get('meta_scaler_path')
         ensemble_cfg_path = self.ensemble_config.get('ensemble_config_path')
 
-        if not meta_model_path or not ensemble_cfg_path:
-            # Derive from run_id
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            ensembles_dir = os.path.join(project_root, self.ENSEMBLE_DIR)
-            meta_model_path = meta_model_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_model.pkl')
-            meta_scaler_path = meta_scaler_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_scaler.pkl')
-            ensemble_cfg_path = ensemble_cfg_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_ensemble_config.json')
+        # Derive missing paths from a known stored path (sibling files share the same
+        # directory and run_id prefix) or fall back to ENSEMBLE_DIR + run_id.
+        # We avoid __file__-based derivation because sportscore's __file__ resolves to
+        # the sportscore package, not the sport app that owns the artifacts.
+        if meta_model_path:
+            ensembles_dir = os.path.dirname(meta_model_path)
+        elif ensemble_cfg_path:
+            ensembles_dir = os.path.dirname(ensemble_cfg_path)
+        else:
+            ensembles_dir = self.ENSEMBLE_DIR
+        meta_model_path = meta_model_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_model.pkl')
+        meta_scaler_path = meta_scaler_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_scaler.pkl')
+        ensemble_cfg_path = ensemble_cfg_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_ensemble_config.json')
 
         if not os.path.exists(meta_model_path):
             raise ValueError(f"Meta-model not found: {meta_model_path}")
@@ -225,6 +231,10 @@ class BaseEnsemblePredictor(ABC):
         )
 
         # STEP 2: Get predictions from each base model
+        # Prediction uses artifact config only (use_logit/logit_eps); no Mongo/request override.
+        use_logit = bool(self.meta_config.get('use_logit', False))
+        logit_eps = float(self.meta_config.get('logit_eps', 1e-6))
+
         base_home_probs: Dict[str, float] = {}
         base_model_breakdowns: List[Dict] = []
 
@@ -270,7 +280,10 @@ class BaseEnsemblePredictor(ABC):
 
             proba = model.predict_proba(X)[0]
             home_win_prob = float(proba[1])
-            home_win_prob = max(0.01, min(home_win_prob, 0.99))
+            if use_logit:
+                home_win_prob = max(logit_eps, min(home_win_prob, 1 - logit_eps))
+            else:
+                home_win_prob = max(0.01, min(home_win_prob, 0.99))
 
             base_home_probs[f"p_{base_id_short}"] = home_win_prob
 
@@ -337,6 +350,14 @@ class BaseEnsemblePredictor(ABC):
                 if col in all_feature_dict:
                     meta_values[col] = all_feature_dict[col]
 
+        # Apply logit transform to p_* columns (same list as meta_feature_cols for consistency)
+        if use_logit:
+            logit_pred_cols = [c for c in meta_feature_cols if c.startswith('p_')]
+            for col in logit_pred_cols:
+                p = meta_values.get(col, 0.0)
+                p_clipped = max(logit_eps, min(p, 1 - logit_eps))
+                meta_values[col] = np.log(p_clipped / (1 - p_clipped))
+
         # Build meta-feature vector in correct order
         meta_X = np.array([meta_values.get(col, 0.0) for col in meta_feature_cols]).reshape(1, -1)
 
@@ -363,6 +384,8 @@ class BaseEnsemblePredictor(ABC):
             'stacking_mode': stacking_mode,
             'use_disagree': use_disagree,
             'use_conf': use_conf,
+            'use_logit': use_logit,
+            'logit_eps': logit_eps,
         }
 
         # STEP 4: Format result via subclass hook

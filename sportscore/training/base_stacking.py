@@ -92,7 +92,9 @@ class BaseStackingTrainer(ABC):
         stacking_mode: str = 'naive',
         meta_features: Optional[List[str]] = None,
         use_disagree: bool = False,
-        use_conf: bool = False
+        use_conf: bool = False,
+        use_logit: bool = False,
+        logit_eps: float = 1e-6
     ) -> Dict:
         """
         Train a stacked model that combines multiple base model predictions.
@@ -108,6 +110,8 @@ class BaseStackingTrainer(ABC):
             meta_features: Optional list of feature names to include in meta-model
             use_disagree: If True, include pairwise disagreement features
             use_conf: If True, include confidence features
+            use_logit: If True, feed logit(p_*) to meta-learner (same logit_eps persisted for prediction)
+            logit_eps: Epsilon for clipping p_* before logit when use_logit=True (persisted in artifact)
 
         Returns:
             Dict with run_id, metrics, diagnostics, artifacts
@@ -158,6 +162,8 @@ class BaseStackingTrainer(ABC):
             'meta_features': meta_features,
             'use_disagree': use_disagree,
             'use_conf': use_conf,
+            'use_logit': use_logit,
+            'logit_eps': logit_eps,
             'splits': ref_splits,
             'features': ref_config.get('features', {})
         }
@@ -252,7 +258,9 @@ class BaseStackingTrainer(ABC):
                 stacking_mode=stacking_mode,
                 meta_features=meta_features,
                 use_disagree=use_disagree,
-                use_conf=use_conf
+                use_conf=use_conf,
+                use_logit=use_logit,
+                logit_eps=logit_eps
             )
 
             # Train meta-model on calibration predictions
@@ -276,7 +284,9 @@ class BaseStackingTrainer(ABC):
                 stacking_mode=stacking_mode,
                 meta_features=meta_features,
                 use_disagree=use_disagree,
-                use_conf=use_conf
+                use_conf=use_conf,
+                use_logit=use_logit,
+                logit_eps=logit_eps
             )
 
             # Save ensemble artifacts to disk
@@ -292,7 +302,9 @@ class BaseStackingTrainer(ABC):
                 stacking_mode=stacking_mode,
                 meta_features=meta_features,
                 use_disagree=use_disagree,
-                use_conf=use_conf
+                use_conf=use_conf,
+                use_logit=use_logit,
+                logit_eps=logit_eps
             )
 
             # Prepare artifacts with file paths
@@ -522,7 +534,9 @@ class BaseStackingTrainer(ABC):
         stacking_mode: str,
         meta_features: Optional[List[str]] = None,
         use_disagree: bool = False,
-        use_conf: bool = False
+        use_conf: bool = False,
+        use_logit: bool = False,
+        logit_eps: float = 1e-6
     ) -> Dict[str, str]:
         """
         Save ensemble model artifacts to disk for later loading.
@@ -558,7 +572,9 @@ class BaseStackingTrainer(ABC):
                 'stacking_mode': stacking_mode,
                 'meta_features': meta_features or [],
                 'use_disagree': use_disagree,
-                'use_conf': use_conf
+                'use_conf': use_conf,
+                'use_logit': use_logit,
+                'logit_eps': logit_eps
             }
             with open(config_path, 'w') as f:
                 json.dump(ensemble_config, f, indent=2)
@@ -618,7 +634,9 @@ class BaseStackingTrainer(ABC):
         stacking_mode: str = 'naive',
         meta_features: Optional[List[str]] = None,
         use_disagree: bool = False,
-        use_conf: bool = False
+        use_conf: bool = False,
+        use_logit: bool = False,
+        logit_eps: float = 1e-6
     ) -> pd.DataFrame:
         """
         Generate stacking training data using base model predictions.
@@ -718,9 +736,11 @@ class BaseStackingTrainer(ABC):
 
             stacking_data[f'p_{model_id_short}'] = p_home_win
 
+        # p_* column names (used for informed derived features and for logit transform)
+        pred_col_names = [col for col in stacking_data.keys() if col.startswith('p_')]
+
         # For informed stacking, add derived features
         if stacking_mode == 'informed':
-            pred_col_names = [col for col in stacking_data.keys() if col.startswith('p_')]
             n_models = len(pred_col_names)
 
             if use_disagree:
@@ -757,6 +777,14 @@ class BaseStackingTrainer(ABC):
                         stacking_data[feat_name] = df[feat_name].values
                     else:
                         print(f"Warning: Meta-feature '{feat_name}' not found in dataset. Skipping.")
+
+        # Apply logit transform to p_* columns (after conf/disagree computed on raw scale)
+        if use_logit:
+            logit_pred_cols = [c for c in pred_col_names if c.startswith('p_')]
+            for col in logit_pred_cols:
+                p = stacking_data[col]
+                p_clipped = np.clip(p, logit_eps, 1 - logit_eps)
+                stacking_data[col] = np.log(p_clipped / (1 - p_clipped))
 
         # Add true labels
         stacking_data[self.TARGET_COL] = df[self.TARGET_COL].values
@@ -816,7 +844,9 @@ class BaseStackingTrainer(ABC):
         stacking_mode: str = 'naive',
         meta_features: Optional[List[str]] = None,
         use_disagree: bool = False,
-        use_conf: bool = False
+        use_conf: bool = False,
+        use_logit: bool = False,
+        logit_eps: float = 1e-6
     ) -> Tuple[Dict, Dict]:
         """
         Evaluate stacked model on evaluation period.
@@ -832,7 +862,9 @@ class BaseStackingTrainer(ABC):
             stacking_mode=stacking_mode,
             meta_features=meta_features,
             use_disagree=use_disagree,
-            use_conf=use_conf
+            use_conf=use_conf,
+            use_logit=use_logit,
+            logit_eps=logit_eps
         )
 
         # Extract features and labels
@@ -988,6 +1020,8 @@ class BaseStackingTrainer(ABC):
             'stacking_mode': stacking_mode,
             'use_disagree': use_disagree,
             'use_conf': use_conf,
+            'use_logit': use_logit,
+            'logit_eps': logit_eps,
             'meta_features_used': meta_features_used,
             'derived_features_used': derived_features_used
         }

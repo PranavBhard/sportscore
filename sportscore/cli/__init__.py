@@ -10,10 +10,13 @@ from sportscore.cli.base import (
     print_metrics,
     print_feature_importances,
 )
+from sportscore.cli.discovery import SportCommand, SportPlugin
 
 __all__ = [
     "BaseCommand",
     "SportsCLI",
+    "SportCommand",
+    "SportPlugin",
     "parse_list",
     "parse_float_list",
     "parse_seasons",

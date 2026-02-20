@@ -61,32 +61,50 @@ class EloCache:
         league: Optional["BaseLeagueConfig"] = None,
         games_repo=None,
         collection_name: Optional[str] = None,
-        starting_elo: float = DEFAULT_STARTING_ELO,
-        k_factor: float = DEFAULT_K_FACTOR,
-        home_advantage: float = DEFAULT_HOME_ADVANTAGE
+        starting_elo=None,
+        k_factor=None,
+        home_advantage=None
     ):
         """
         Initialize EloCache.
 
         Args:
             db: MongoDB database instance
-            league: Optional league config for collection names
+            league: Optional league config for collection names and ELO params
             games_repo: Optional games repository instance for data access.
                         If not provided, uses raw db queries.
             collection_name: Optional explicit collection name override
-            starting_elo: Initial Elo rating for new teams (default: 1500)
-            k_factor: K-factor for Elo updates (default: 20)
-            home_advantage: Home court/ice/field advantage in Elo points (default: 100)
+            starting_elo: Initial Elo rating for new teams. Falls back to league config, then 1500.
+            k_factor: K-factor for Elo updates. Falls back to league config, then 20.
+            home_advantage: Home court/ice/field advantage in Elo points. Falls back to league config, then 100.
         """
         self.db = db
         self.league = league
+
+        # Collection resolution
         effective = collection_name
         if league is not None:
             effective = effective or league.collections.get("elo_cache")
         self.collection = db[effective or DEFAULT_ELO_CACHE_COLLECTION]
-        self.starting_elo = starting_elo
-        self.k_factor = k_factor
-        self.home_advantage = home_advantage
+
+        # Resolve ELO params: explicit kwarg > league config > hardcoded default
+        if league is not None:
+            self.starting_elo = starting_elo if starting_elo is not None else league.elo_starting_rating
+            self.k_factor = k_factor if k_factor is not None else league.elo_k_factor
+            self.home_advantage = home_advantage if home_advantage is not None else league.elo_home_advantage
+        else:
+            self.starting_elo = starting_elo if starting_elo is not None else DEFAULT_STARTING_ELO
+            self.k_factor = k_factor if k_factor is not None else DEFAULT_K_FACTOR
+            self.home_advantage = home_advantage if home_advantage is not None else DEFAULT_HOME_ADVANTAGE
+
+        # Derived config from league (or sensible defaults when no league)
+        self._strategy = league.elo_strategy if league else "static"
+        self._k_schedule = league.elo_k_schedule if league else []
+        self._carryover_enabled = league.elo_carryover_enabled if league else False
+        self._carryover_alpha = league.elo_carryover_alpha if league else 1.0
+        self._carryover_mean = league.elo_carryover_mean_rating if league else self.starting_elo
+        self._neutral_site_ha = league.elo_neutral_site_home_advantage if league else 0
+        self._ha_overrides = league.elo_home_advantage_overrides if league else {}
 
         # Games repo for data access (sport-specific, injected by caller)
         self._games_repo = games_repo
@@ -103,6 +121,31 @@ class EloCache:
     def _exclude_game_types(self) -> list:
         """Get excluded game types from league config, with fallback."""
         return self.league.exclude_game_types if self.league else ['preseason', 'allstar']
+
+    def _get_k_for_games_played(self, games_played: int) -> float:
+        """
+        Look up K factor from k_schedule based on pre-game count.
+
+        games_played is the number of games a team has ALREADY played this season
+        (before the current game). max_games is an exclusive upper bound:
+        max_games=10 covers pre-game counts 0..9 (the team's first 10 games).
+        """
+        if self._strategy != "dynamic" or not self._k_schedule:
+            return self.k_factor
+        for entry in self._k_schedule:
+            if "max_games" in entry:
+                if "k" not in entry:
+                    raise ValueError(f"Malformed k_schedule entry (missing 'k'): {entry}")
+                if games_played < entry["max_games"]:
+                    return float(entry["k"])
+        # Fall through to default entry
+        for entry in self._k_schedule:
+            if "default" in entry:
+                return float(entry["default"])
+        raise ValueError(
+            f"k_schedule has no matching tier for games_played={games_played} "
+            f"and no default entry: {self._k_schedule}"
+        )
 
     def _ensure_indexes(self):
         """Create required indexes if they don't exist."""
@@ -162,8 +205,11 @@ class EloCache:
         """
         Compute Elo ratings from a list of games.
 
+        Supports season carryover regression, dynamic K schedules,
+        neutral site handling, and per-game_type home advantage overrides.
+
         Args:
-            games: List of game documents sorted chronologically.
+            games: List of game documents (multi-season, chronological).
                    Each game must have: homeTeam.name, awayTeam.name, date, season, homeWon
             progress_callback: Optional callback(current, total) for progress updates
 
@@ -174,6 +220,8 @@ class EloCache:
         """
         elo = defaultdict(lambda: self.starting_elo)
         elo_history = {}
+        games_played = defaultdict(int)  # team -> games played this season (pre-game count)
+        current_season = None
 
         valid_games = [
             g for g in games
@@ -189,26 +237,56 @@ class EloCache:
         if len(valid_games) < len(games):
             print(f"  Filtered out {len(games) - len(valid_games)} games with missing fields")
 
-        sorted_games = sorted(valid_games, key=lambda g: g.get('date', ''))
+        # Sort by (season, date) to guarantee season boundaries are clean
+        sorted_games = sorted(valid_games, key=lambda g: (g.get('season', ''), g.get('date', '')))
         total = len(sorted_games)
 
         for idx, game in enumerate(sorted_games):
+            season = game['season']
+
+            # Season carryover regression at boundary
+            if season != current_season:
+                if current_season is not None and self._carryover_enabled:
+                    for team in list(elo.keys()):
+                        elo[team] = self._carryover_mean + self._carryover_alpha * (elo[team] - self._carryover_mean)
+                games_played.clear()
+                current_season = season
+
             home = game['homeTeam']['name']
             away = game['awayTeam']['name']
             game_date = game['date']
-            season = game['season']
 
+            # Store pre-game elo
             elo_history[(home, game_date, season)] = elo[home]
             elo_history[(away, game_date, season)] = elo[away]
 
-            home_elo_adj = elo[home] + self.home_advantage
+            # Resolve home advantage: neutral > game_type override > default
+            is_neutral = game.get('neutralSite', False)
+            game_type = game.get('game_type', '')
+            if is_neutral:
+                ha = self._neutral_site_ha
+            elif game_type in self._ha_overrides:
+                ha = self._ha_overrides[game_type]
+            else:
+                ha = self.home_advantage
+
+            # Expected outcome
+            home_elo_adj = elo[home] + ha
             expected_home = 1 / (1 + 10 ** ((elo[away] - home_elo_adj) / 400))
 
-            actual_home = 1 if game['homeWon'] else 0
-            elo_change = self.k_factor * (actual_home - expected_home)
+            # Dynamic K: average of both teams' schedule-K (preserves zero-sum)
+            k = (self._get_k_for_games_played(games_played[home])
+                 + self._get_k_for_games_played(games_played[away])) / 2
 
+            # Update ratings
+            actual_home = 1 if game['homeWon'] else 0
+            elo_change = k * (actual_home - expected_home)
             elo[home] += elo_change
             elo[away] -= elo_change
+
+            # Track games played (increment AFTER update — count is pre-game)
+            games_played[home] += 1
+            games_played[away] += 1
 
             if progress_callback and (idx + 1) % 500 == 0:
                 progress_callback(idx + 1, total)

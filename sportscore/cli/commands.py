@@ -11,6 +11,71 @@ import sys
 from sportscore.cli.discovery import SportCommand
 
 
+class CacheLeagueStatsCommand(SportCommand):
+    name = "cache_league_stats"
+    help = "Compute and cache league stats (pace, PER constants) in MongoDB"
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--season", "-s", type=str, default=None,
+                            help="Specific season to cache (e.g., 2025-2026)")
+        parser.add_argument("--list", "-l", action="store_true", dest="list_seasons",
+                            help="List all cached seasons")
+        parser.add_argument("--force", "-f", action="store_true",
+                            help="Force recalculation even if already cached")
+
+    def run(self, args, *, league_loader=None, db_factory=None, **kwargs) -> int:
+        # Import here so sportscore itself doesn't depend on bball at import time;
+        # the sport app supplies the concrete functions via its league/db layer.
+        league = league_loader(args.league)
+        db = db_factory()
+
+        print(f"League: {league.display_name} ({league.league_id})")
+
+        # Use the sport app's league_cache module.  The functions are
+        # generic (any sport that stores game box-scores can compute
+        # possessions/pace), so we import from the basketball package
+        # which currently hosts the implementation.  If a second sport
+        # needs different formulas it can override via its own command.
+        try:
+            from bball.stats.league_cache import (
+                cache_season,
+                get_all_seasons,
+                list_cached_seasons,
+            )
+        except ImportError as exc:
+            print(f"Error: league_cache module not available: {exc}",
+                  file=sys.stderr)
+            return 1
+
+        if args.list_seasons:
+            list_cached_seasons(db, league=league)
+            return 0
+
+        if args.season:
+            print(f"\nCaching season {args.season}...")
+            success = cache_season(db, args.season, force=args.force, league=league)
+            if success:
+                print(f"\nSeason {args.season} cached successfully.")
+            else:
+                print(f"\nFailed to cache season {args.season}.", file=sys.stderr)
+                return 1
+        else:
+            print("\nDiscovering seasons...")
+            seasons = get_all_seasons(db, league=league)
+            print(f"Found {len(seasons)} seasons: {', '.join(seasons)}\n")
+
+            cached_count = 0
+            for season in seasons:
+                if cache_season(db, season, force=args.force, league=league):
+                    cached_count += 1
+
+            print(f"\nCached {cached_count}/{len(seasons)} seasons.")
+
+        print()
+        list_cached_seasons(db, league=league)
+        return 0
+
+
 class ComputeMarketCalibrationCommand(SportCommand):
     name = "compute_market_calibration"
     help = "Compute market calibration (Brier/log-loss) from historical odds"
@@ -23,7 +88,7 @@ class ComputeMarketCalibrationCommand(SportCommand):
         parser.add_argument("--dry-run", action="store_true",
                             help="Print results without writing to MongoDB")
 
-    def run(self, args, *, league_loader=None, db_factory=None) -> int:
+    def run(self, args, *, league_loader=None, db_factory=None, **kwargs) -> int:
         from sportscore.services.market_calibration_service import (
             compute_and_store_market_calibration,
         )
@@ -73,7 +138,7 @@ class ComputeBinTrustCommand(SportCommand):
         parser.add_argument("--dry-run", action="store_true",
                             help="Print results without writing to MongoDB")
 
-    def run(self, args, *, league_loader=None, db_factory=None) -> int:
+    def run(self, args, *, league_loader=None, db_factory=None, **kwargs) -> int:
         from sportscore.market import MarketConnector
         from sportscore.services.market_bins import (
             fetch_all_fills, fetch_all_settlements, compute_market_bins,
@@ -189,8 +254,56 @@ class ComputeBinTrustCommand(SportCommand):
         return 0
 
 
+class DbIngestionCommand(SportCommand):
+    name = "db_ingestion"
+    help = "Pull data from ESPN and enrich DB (indexes, games, teams, rosters, ELO)"
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--seasons", type=str, default=None,
+                            help="Comma-separated seasons (e.g., '2023-2024,2024-2025')")
+        parser.add_argument("--max-workers", type=int, default=None,
+                            help="Max parallel workers for ESPN pull")
+        parser.add_argument("--skip-espn", action="store_true",
+                            help="Skip ESPN data pull")
+        parser.add_argument("--skip-post", action="store_true",
+                            help="Skip post-processing (teams, players, venues, rosters)")
+        parser.add_argument("--dry-run", action="store_true",
+                            help="Show what would be done without modifying data")
+        parser.add_argument("--verbose", "-v", action="store_true",
+                            help="Show detailed output")
+
+    def run(self, args, *, league_loader=None, db_factory=None,
+            plugin=None, **kwargs) -> int:
+        if plugin is None:
+            print("Error: sport plugin not available", file=sys.stderr)
+            return 1
+
+        pipeline = plugin.get_ingestion_pipeline(
+            args.league,
+            seasons=args.seasons.split(",") if args.seasons else None,
+            max_workers=args.max_workers,
+            skip_espn=args.skip_espn,
+            skip_post=args.skip_post,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+        )
+
+        if pipeline is None:
+            print(
+                f"Error: db_ingestion is not implemented for this sport.\n"
+                f"Implement get_ingestion_pipeline() in the sport plugin.",
+                file=sys.stderr,
+            )
+            return 1
+
+        result = pipeline.run()
+        return 0 if result.success else 1
+
+
 # All generic commands — main.py iterates this to build the command map
 GENERIC_COMMANDS = [
+    CacheLeagueStatsCommand(),
     ComputeMarketCalibrationCommand(),
     ComputeBinTrustCommand(),
+    DbIngestionCommand(),
 ]

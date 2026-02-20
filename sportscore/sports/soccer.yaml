@@ -1,0 +1,7 @@
+meta:
+  sport_id: soccer
+  display_name: Soccer
+
+season:
+  default_exclude_game_types:
+    - friendly

@@ -296,6 +296,33 @@ class BaseLeagueConfig:
         """Per game-type home advantage overrides (future). e.g., {tournament: 75}"""
         return self.elo_config.get("home_advantage_overrides") or {}
 
+    @property
+    def elo_carryover_config(self) -> Dict[str, Any]:
+        """Season-to-season ELO regression config."""
+        return self.elo_config.get("carryover") or {}
+
+    @property
+    def elo_carryover_enabled(self) -> bool:
+        return bool(self.elo_carryover_config.get("enabled", False))
+
+    @property
+    def elo_carryover_alpha(self) -> float:
+        """Fraction of prior-season rating retained. 1.0 = full carry, 0.0 = full reset."""
+        return float(self.elo_carryover_config.get("alpha", 1.0))
+
+    @property
+    def elo_carryover_mean_rating(self) -> float:
+        return float(self.elo_carryover_config.get("mean_rating", self.elo_starting_rating))
+
+    @property
+    def elo_neutral_site_config(self) -> Dict[str, Any]:
+        return self.elo_config.get("neutral_site") or {}
+
+    @property
+    def elo_neutral_site_home_advantage(self) -> float:
+        """Home advantage applied at neutral sites (typically 0)."""
+        return float(self.elo_neutral_site_config.get("home_advantage", 0))
+
     # --- Training config ---
 
     @property
@@ -384,7 +411,16 @@ class BaseLeagueConfig:
 
     @property
     def extra_feature_stats(self) -> List[str]:
-        """Sport-specific extra stats used in feature calculations (e.g., PER)."""
+        """Sport-specific extra stats used in feature calculations.
+
+        Supports both nested ``extra_features.stats`` (preferred) and flat
+        ``extra_feature_stats`` key for backward compatibility.
+        """
+        ef = self.raw.get("extra_features")
+        if isinstance(ef, dict):
+            stats = ef.get("stats", [])
+            if isinstance(stats, list) and stats:
+                return stats
         return self.raw.get("extra_feature_stats") or []
 
 

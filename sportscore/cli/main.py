@@ -2,8 +2,13 @@
 
 Usage:
     sportscore --list-leagues
+    sportscore cache_league_stats wcbb --season 2025-2026
+    sportscore cache_league_stats nba --list
+    sportscore cache_league_stats cbb --force
     sportscore full_data_pipeline nba --skip-espn
     sportscore generate_training_data wcbb --add --features "vegas_*"
+    sportscore compute_market_calibration nba --rolling-seasons 3
+    sportscore compute_bin_trust nba --bin-width 5
 """
 
 import argparse
@@ -129,7 +134,7 @@ def main(argv: List[str] | None = None) -> int:
     command.add_arguments(full_parser)
     full_args = full_parser.parse_args([league_id] + remaining)
 
-    # Run — generic commands get league_loader/db_factory from the plugin
+    # Run — generic commands get league_loader/db_factory/plugin from the plugin
     try:
         if cmd_name in generic_cmd_names:
             plugin = plugins[sport_name]
@@ -137,6 +142,7 @@ def main(argv: List[str] | None = None) -> int:
                 full_args,
                 league_loader=plugin.get_league_loader(),
                 db_factory=plugin.get_db_factory(),
+                plugin=plugin,
             )
         return command.run(full_args)
     except KeyboardInterrupt:

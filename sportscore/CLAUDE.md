@@ -40,6 +40,29 @@ class HockeyFeatureRegistry(BaseFeatureRegistry):
     STAT_DEFINITIONS = { ... }  # Corsi, Fenwick, xG, etc.
 ```
 
+## Unified CLI
+
+The `sportscore` command is the unified CLI entry point. Sport apps register as plugins via entry points.
+
+```bash
+sportscore --list-leagues                            # Show available leagues & commands
+sportscore <command> <league> --help                 # Command-specific help
+```
+
+### Generic Commands (available for all sports)
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `cache_league_stats` | Compute & cache league stats (pace, PER constants) | `sportscore cache_league_stats wcbb --season 2025-2026` |
+| `compute_market_calibration` | Compute market calibration (Brier/log-loss) | `sportscore compute_market_calibration nba --rolling-seasons 3` |
+| `compute_bin_trust` | Compute bin trust weights from portfolio P&L | `sportscore compute_bin_trust nba --bin-width 5` |
+
+### Sport-Specific Commands (registered by sport app plugins)
+
+Sport apps add their own commands in `<app>/cli/plugin.py`. Example (basketball):
+- `full_data_pipeline` — Full ESPN data pipeline
+- `generate_training_data` — Generate master training CSV
+
 ## Python Environment
 - Requires Python 3.12+
 - Install for development: `pip install -e .`

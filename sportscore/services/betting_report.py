@@ -119,17 +119,20 @@ def calculate_stake(
         log_loss_score: Model's log-loss (optional; Brier-only if omitted)
         market_brier: Market baseline Brier score. Should come from the
             market_calibration collection (computed by compute_market_calibration
-            CLI script). Falls back to 0.21 if not provided.
+            CLI script). Falls back to model's own brier_score if not provided
+            (assumes 0 skill — model is no better than market).
         market_log_loss: Market baseline log-loss. Should come from the
-            market_calibration collection. Falls back to 0.60 if not provided.
+            market_calibration collection. Falls back to model's own log_loss
+            if not provided (assumes 0 skill).
 
     Returns:
         Dict with stake sizing details and diagnostic fields.
     """
+    # Default: assume market = model (skill = 0) when no calibration data
     if market_brier is None:
-        market_brier = 0.21
+        market_brier = brier_score
     if market_log_loss is None:
-        market_log_loss = 0.60
+        market_log_loss = log_loss_score
 
     # --- 1. Market-relative skill (blended Brier + log-loss) ---
     skill_bs = 1.0 - (brier_score / market_brier) if market_brier > 0 else 0.0

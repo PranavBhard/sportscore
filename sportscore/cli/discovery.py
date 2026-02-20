@@ -49,6 +49,17 @@ class SportPlugin(ABC):
         """Return a callable() -> db connection."""
         ...
 
+    def get_ingestion_pipeline(self, league_id, **kwargs):
+        """Return a BasePipeline that does ESPN pull + enrichment (no training).
+
+        Override in sport plugins to enable the ``db_ingestion`` generic command.
+        Returns *None* by default (command will report "not supported").
+
+        Expected kwargs: seasons, max_workers, skip_espn, skip_post,
+        dry_run, verbose.
+        """
+        return None
+
 
 def discover_plugins() -> Dict[str, SportPlugin]:
     """Discover sport plugins via entry points.

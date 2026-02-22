@@ -8,9 +8,30 @@ and time-based calibration. Fully sport-agnostic.
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import accuracy_score, log_loss, brier_score_loss
+from sklearn.metrics import accuracy_score, log_loss
 
 from sportscore.training.model_factory import create_model_with_c
+
+
+def _multiclass_brier_score(y_true, y_proba):
+    """Brier score: standard single-column for binary, multi-class for 3+.
+
+    Binary (2 columns): mean((p_positive - y)^2)  — matches sklearn brier_score_loss.
+    Multi-class (3+ columns): mean(sum_k (p_k - y_k)^2) per sample.
+    """
+    if y_proba.shape[1] == 2:
+        # Standard binary Brier: use positive-class column only
+        return float(np.mean((y_proba[:, 1] - y_true.astype(float)) ** 2))
+    y_onehot = np.zeros_like(y_proba)
+    y_onehot[np.arange(len(y_true)), y_true.astype(int)] = 1.0
+    return float(np.mean(np.sum((y_proba - y_onehot) ** 2, axis=1)))
+
+
+def _classify(y_proba):
+    """Predict class labels: argmax for 3+, threshold for binary."""
+    if y_proba.shape[1] == 2:
+        return (y_proba[:, 1] >= 0.5).astype(int)
+    return np.argmax(y_proba, axis=1)
 
 
 def evaluate_model_combo(
@@ -53,7 +74,7 @@ def evaluate_model_combo(
 
         acc = accuracy_score(y_val, y_pred) * 100
         ll = log_loss(y_val, y_proba)
-        brier = brier_score_loss(y_val, y_proba[:, 1])
+        brier = _multiclass_brier_score(y_val, y_proba)
 
         accuracies.append(acc)
         log_losses.append(ll)
@@ -147,63 +168,97 @@ def evaluate_model_combo_with_calibration(
         logger.info(f"Calibration set: {len(X_cal)} games (Seasons in {cal_seasons})")
         logger.info(f"Evaluation set: {len(X_eval)} games (SeasonStartYear == {eval_season})")
 
-        if len(X_train) == 0:
-            logger.warning(f"Training set is empty! Check begin_year and calibration_years.")
-        if len(X_cal) == 0:
-            logger.warning(f"Calibration set is empty! Check calibration_years: {calibration_years}")
-        if len(X_eval) == 0:
-            logger.warning(f"Evaluation set is empty! Check evaluation_year: {evaluation_year}")
+    available_seasons = sorted(df_copy['SeasonStartYear'].unique().tolist())
+    if len(X_train) == 0:
+        raise ValueError(
+            f"Training set is empty (SeasonStartYear < {earliest_cal_year}). "
+            f"Available seasons in dataset: {available_seasons}"
+        )
+    if len(X_cal) == 0:
+        raise ValueError(
+            f"Calibration set is empty (calibration_years={cal_seasons}). "
+            f"Available seasons in dataset: {available_seasons}"
+        )
+    if len(X_eval) == 0:
+        raise ValueError(
+            f"Evaluation set is empty (evaluation_year={eval_season}). "
+            f"Available seasons in dataset: {available_seasons}"
+        )
 
     model = create_model_with_c(model_type, c_value)
     model.fit(X_train, y_train)
 
+    n_classes = len(np.unique(y_train))
+
     y_proba_raw_cal = model.predict_proba(X_cal)
-
-    if calibration_method == 'isotonic':
-        calibrator = IsotonicRegression(out_of_bounds='clip')
-        calibrator.fit(y_proba_raw_cal[:, 1], y_cal)
-    elif calibration_method == 'sigmoid':
-        sigmoid_calibrator = LR()
-        sigmoid_calibrator.fit(y_proba_raw_cal[:, 1].reshape(-1, 1), y_cal)
-
-        class SigmoidCalibratedModel:
-            def __init__(self, base_model, calibrator):
-                self.base_model = base_model
-                self.calibrator = calibrator
-
-            def predict(self, X):
-                return self.base_model.predict(X)
-
-            def predict_proba(self, X):
-                raw_proba = self.base_model.predict_proba(X)
-                calibrated_1 = self.calibrator.predict_proba(raw_proba[:, 1].reshape(-1, 1))[:, 1]
-                calibrated_1 = np.clip(calibrated_1, 0.0, 1.0)
-                return np.column_stack([1 - calibrated_1, calibrated_1])
-
-        calibrator = SigmoidCalibratedModel(model, sigmoid_calibrator)
-    else:
-        if logger:
-            logger.warning(f"Unknown calibration method: {calibration_method}, using raw probabilities")
-        calibrator = None
-
     y_proba_raw_eval = model.predict_proba(X_eval)
 
-    if calibrator is not None:
+    if n_classes == 2:
+        # Binary calibration (existing logic)
         if calibration_method == 'isotonic':
-            y_proba_calibrated = np.column_stack([
-                1 - calibrator.predict(y_proba_raw_eval[:, 1]),
-                calibrator.predict(y_proba_raw_eval[:, 1])
-            ])
-        else:
-            y_proba_calibrated = calibrator.predict_proba(X_eval)
-    else:
-        y_proba_calibrated = y_proba_raw_eval
+            calibrator = IsotonicRegression(out_of_bounds='clip')
+            calibrator.fit(y_proba_raw_cal[:, 1], y_cal)
+        elif calibration_method == 'sigmoid':
+            sigmoid_calibrator = LR()
+            sigmoid_calibrator.fit(y_proba_raw_cal[:, 1].reshape(-1, 1), y_cal)
 
-    y_pred_calibrated = (y_proba_calibrated[:, 1] >= 0.5).astype(int)
+            class SigmoidCalibratedModel:
+                def __init__(self, base_model, calibrator):
+                    self.base_model = base_model
+                    self.calibrator = calibrator
+
+                def predict(self, X):
+                    return self.base_model.predict(X)
+
+                def predict_proba(self, X):
+                    raw_proba = self.base_model.predict_proba(X)
+                    calibrated_1 = self.calibrator.predict_proba(raw_proba[:, 1].reshape(-1, 1))[:, 1]
+                    calibrated_1 = np.clip(calibrated_1, 0.0, 1.0)
+                    return np.column_stack([1 - calibrated_1, calibrated_1])
+
+            calibrator = SigmoidCalibratedModel(model, sigmoid_calibrator)
+        else:
+            if logger:
+                logger.warning(f"Unknown calibration method: {calibration_method}, using raw probabilities")
+            calibrator = None
+
+        if calibrator is not None:
+            if calibration_method == 'isotonic':
+                y_proba_calibrated = np.column_stack([
+                    1 - calibrator.predict(y_proba_raw_eval[:, 1]),
+                    calibrator.predict(y_proba_raw_eval[:, 1])
+                ])
+            else:
+                y_proba_calibrated = calibrator.predict_proba(X_eval)
+        else:
+            y_proba_calibrated = y_proba_raw_eval
+    else:
+        # Multi-class calibration via temperature scaling
+        from scipy.optimize import minimize_scalar
+
+        def _temperature_scale(proba, T):
+            logits = np.log(np.clip(proba, 1e-15, 1.0))
+            scaled = logits / T
+            exp_s = np.exp(scaled - scaled.max(axis=1, keepdims=True))
+            return exp_s / exp_s.sum(axis=1, keepdims=True)
+
+        def _find_temperature(proba_cal, y_cal_inner):
+            def nll(T):
+                return log_loss(y_cal_inner, _temperature_scale(proba_cal, T))
+            result = minimize_scalar(nll, bounds=(0.1, 10.0), method='bounded')
+            return result.x
+
+        T_opt = _find_temperature(y_proba_raw_cal, y_cal)
+        y_proba_calibrated = _temperature_scale(y_proba_raw_eval, T_opt)
+
+        if logger:
+            logger.info(f"Temperature scaling: T_opt={T_opt:.3f}")
+
+    y_pred_calibrated = _classify(y_proba_calibrated)
 
     acc = accuracy_score(y_eval, y_pred_calibrated) * 100
     ll = log_loss(y_eval, y_proba_calibrated)
-    brier = brier_score_loss(y_eval, y_proba_calibrated[:, 1])
+    brier = _multiclass_brier_score(y_eval, y_proba_calibrated)
 
     if logger:
         logger.info(f"Calibrated results on season starting {eval_season} - Accuracy: {acc:.2f}%, Log Loss: {ll:.4f}, Brier: {brier:.4f}")
@@ -245,7 +300,10 @@ def compute_feature_importance(model, feature_names: list, model_type: str) -> d
                 importance[name] = float(imp)
     elif model_type == 'LogisticRegression':
         if hasattr(model, 'coef_'):
-            coefs = np.abs(model.coef_[0])
+            if model.coef_.ndim == 1 or model.coef_.shape[0] == 1:
+                coefs = np.abs(model.coef_.ravel())
+            else:
+                coefs = np.mean(np.abs(model.coef_), axis=0)
             for name, coef in zip(feature_names, coefs):
                 importance[name] = float(coef)
 

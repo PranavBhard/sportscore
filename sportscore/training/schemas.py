@@ -148,7 +148,7 @@ class StackingConfig(BaseModel):
 
 class ExperimentConfig(BaseModel):
     """Complete experiment configuration."""
-    task: Literal['binary_home_win', 'score_regression', 'points_regression', 'stacking'] = 'binary_home_win'
+    task: Literal['binary_home_win', 'ternary_match_outcome', 'score_regression', 'points_regression', 'stacking'] = 'binary_home_win'
 
     model: Optional[ModelConfig] = Field(None, description="Classification model config")
     regression_model: Optional[RegressionModelConfig] = Field(None, description="Regression model config")
@@ -168,8 +168,8 @@ class ExperimentConfig(BaseModel):
     @validator('model')
     def validate_model_for_classification(cls, v, values):
         task = values.get('task', 'binary_home_win')
-        if task == 'binary_home_win' and v is None:
-            raise ValueError("model is required when task='binary_home_win'")
+        if task in ('binary_home_win', 'ternary_match_outcome') and v is None:
+            raise ValueError("model is required for classification tasks")
         return v
 
     @validator('regression_model')
@@ -192,7 +192,7 @@ class ExperimentConfig(BaseModel):
 
 class DatasetSpec(BaseModel):
     """Dataset specification for build_dataset()."""
-    label: Literal['home_win'] = 'home_win'
+    label: Literal['home_win', 'match_outcome'] = 'home_win'
     unit: Literal['game'] = 'game'
 
     feature_blocks: List[str] = Field(default_factory=list)
@@ -208,6 +208,8 @@ class DatasetSpec(BaseModel):
     exclude_seasons: Optional[List[int]] = Field(None, description="Season start years to exclude from dataset")
 
     diff_mode: Literal['home_minus_away', 'away_minus_home', 'absolute', 'mixed', 'all'] = 'home_minus_away'
+
+    force_rebuild: bool = Field(False, description="Bypass dataset cache and rebuild from master CSV")
 
     class Config:
         extra = 'allow'

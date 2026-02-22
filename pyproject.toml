@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=1.10.0",
     "requests>=2.25.0",
     "pytz>=2023.3",
+    "geopy>=2.2.0",
 ]
 
 [project.optional-dependencies]

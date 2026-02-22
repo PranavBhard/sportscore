@@ -76,9 +76,10 @@ class BaseEnsemblePredictor(ABC):
         # Initialize feature generator via subclass hook
         self.feature_generator = self._create_feature_generator()
 
-        # Load meta-model, scaler, and config
+        # Load meta-model, scaler, calibrator, and config
         self.meta_model = None
         self.meta_scaler = None
+        self.meta_calibrator = None
         self.meta_config = None
         self._load_meta_model()
 
@@ -103,7 +104,9 @@ class BaseEnsemblePredictor(ABC):
     @abstractmethod
     def _format_prediction_result(self, ensemble_home_prob: float, home_team: str, away_team: str,
                                    base_model_breakdowns: List[Dict], meta_info: Dict,
-                                   all_feature_dict: Dict) -> Dict:
+                                   all_feature_dict: Dict,
+                                   ensemble_draw_prob: float = None,
+                                   ensemble_away_prob: float = None) -> Dict:
         """Format the final prediction result dict. Sport-specific."""
         ...
 
@@ -199,6 +202,18 @@ class BaseEnsemblePredictor(ABC):
         with open(ensemble_cfg_path, 'r') as f:
             self.meta_config = json.load(f)
 
+        # Load meta-calibrator if present
+        meta_cal_method = self.meta_config.get('meta_calibration_method')
+        if meta_cal_method:
+            # Try explicit path from MongoDB doc first, then derive from sibling file
+            calibrator_path = self.ensemble_config.get('meta_calibrator_path')
+            if not calibrator_path or not os.path.exists(calibrator_path):
+                calibrator_path = os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_calibrator.pkl')
+
+            if os.path.exists(calibrator_path):
+                with open(calibrator_path, 'rb') as f:
+                    self.meta_calibrator = pickle.load(f)
+
     def predict(self, home_team: str, away_team: str, season: str, game_date: str, **kwargs) -> Dict:
         """
         Make an ensemble prediction for a game.
@@ -279,23 +294,47 @@ class BaseEnsemblePredictor(ABC):
                 X = scaler.transform(X)
 
             proba = model.predict_proba(X)[0]
-            home_win_prob = float(proba[1])
-            if use_logit:
-                home_win_prob = max(logit_eps, min(home_win_prob, 1 - logit_eps))
+            n_classes = len(proba)
+
+            if n_classes == 2:
+                # Binary: P(home) = proba[1]
+                home_win_prob = float(proba[1])
+                if use_logit:
+                    home_win_prob = max(logit_eps, min(home_win_prob, 1 - logit_eps))
+                else:
+                    home_win_prob = max(0.01, min(home_win_prob, 0.99))
+
+                base_home_probs[f"p_{base_id_short}"] = home_win_prob
+
+                breakdown = {
+                    'config_id': base_id_str,
+                    'config_id_short': base_id_short,
+                    'name': config.get('name') or f'Base Model {base_id_short}',
+                    'model_type': config.get('model_type') or 'Unknown',
+                    'home_win_prob_pct': round(home_win_prob * 100, 1),
+                    'features_dict': {fname: all_feature_dict.get(fname, 0.0) for fname in feature_names}
+                }
             else:
-                home_win_prob = max(0.01, min(home_win_prob, 0.99))
+                # Ternary: class 0=away, 1=draw, 2=home
+                home_prob = float(proba[2])
+                draw_prob = float(proba[1])
+                away_prob = float(proba[0])
 
-            base_home_probs[f"p_{base_id_short}"] = home_win_prob
+                base_home_probs[f"p_home_{base_id_short}"] = home_prob
+                base_home_probs[f"p_draw_{base_id_short}"] = draw_prob
 
-            # Store breakdown
-            base_model_breakdowns.append({
-                'config_id': base_id_str,
-                'config_id_short': base_id_short,
-                'name': config.get('name') or f'Base Model {base_id_short}',
-                'model_type': config.get('model_type') or 'Unknown',
-                'home_win_prob_pct': round(home_win_prob * 100, 1),
-                'features_dict': {fname: all_feature_dict.get(fname, 0.0) for fname in feature_names}
-            })
+                breakdown = {
+                    'config_id': base_id_str,
+                    'config_id_short': base_id_short,
+                    'name': config.get('name') or f'Base Model {base_id_short}',
+                    'model_type': config.get('model_type') or 'Unknown',
+                    'home_win_prob_pct': round(home_prob * 100, 1),
+                    'draw_prob_pct': round(draw_prob * 100, 1),
+                    'away_win_prob_pct': round(away_prob * 100, 1),
+                    'features_dict': {fname: all_feature_dict.get(fname, 0.0) for fname in feature_names}
+                }
+
+            base_model_breakdowns.append(breakdown)
 
         # STEP 3: Build meta-features and predict with meta-model
         meta_feature_cols = self.meta_config.get('meta_feature_cols', [])
@@ -337,9 +376,24 @@ class BaseEnsemblePredictor(ABC):
                         meta_values[f'disagree_{id_i}_{id_j}'] = abs(meta_values[pred_cols[i]] - meta_values[pred_cols[j]])
 
             if use_conf:
-                for col in pred_cols:
-                    mid = col.replace('p_', '')
-                    meta_values[f'conf_{mid}'] = abs(meta_values[col] - 0.5)
+                # Detect binary vs ternary from the column naming pattern
+                has_ternary_cols = any(c.startswith('p_home_') for c in pred_cols)
+                if not has_ternary_cols:
+                    # Binary: distance from 0.5
+                    for col in pred_cols:
+                        mid = col.replace('p_', '')
+                        meta_values[f'conf_{mid}'] = abs(meta_values[col] - 0.5)
+                else:
+                    # Ternary: max probability - 1/3 for each model
+                    model_ids = set()
+                    for col in pred_cols:
+                        if col.startswith('p_home_'):
+                            model_ids.add(col.replace('p_home_', ''))
+                    for mid in model_ids:
+                        p_home = meta_values.get(f'p_home_{mid}', 0.0)
+                        p_draw = meta_values.get(f'p_draw_{mid}', 0.0)
+                        p_away = 1.0 - p_home - p_draw
+                        meta_values[f'conf_{mid}'] = max(p_home, p_draw, p_away) - 1.0 / 3
 
             # Add extra meta-features from the game features if needed
             extra_cols = [
@@ -373,8 +427,25 @@ class BaseEnsemblePredictor(ABC):
 
         # Meta-model prediction
         meta_proba = self.meta_model.predict_proba(meta_X)[0]
-        ensemble_home_prob = float(meta_proba[1])
-        ensemble_home_prob = max(0.01, min(ensemble_home_prob, 0.99))
+
+        # Apply meta-calibrator if present
+        if self.meta_calibrator is not None:
+            from sportscore.training.base_stacking import BaseStackingTrainer
+            meta_proba_2d = meta_proba.reshape(1, -1)
+            meta_proba_2d = BaseStackingTrainer._apply_meta_calibrator(meta_proba_2d, self.meta_calibrator)
+            meta_proba = meta_proba_2d[0]
+
+        n_meta_classes = len(meta_proba)
+
+        if n_meta_classes == 2:
+            ensemble_home_prob = float(meta_proba[1])
+            ensemble_home_prob = max(0.01, min(ensemble_home_prob, 0.99))
+            ensemble_draw_prob = None
+            ensemble_away_prob = None
+        else:
+            ensemble_home_prob = float(meta_proba[2])   # home = class 2
+            ensemble_draw_prob = float(meta_proba[1])   # draw = class 1
+            ensemble_away_prob = float(meta_proba[0])   # away = class 0
 
         # Build meta_info for subclass formatting
         meta_info = {
@@ -395,5 +466,7 @@ class BaseEnsemblePredictor(ABC):
             away_team=away_team,
             base_model_breakdowns=base_model_breakdowns,
             meta_info=meta_info,
-            all_feature_dict=all_feature_dict
+            all_feature_dict=all_feature_dict,
+            ensemble_draw_prob=ensemble_draw_prob,
+            ensemble_away_prob=ensemble_away_prob,
         )

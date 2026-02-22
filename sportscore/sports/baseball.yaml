@@ -1,0 +1,8 @@
+meta:
+  sport_id: baseball
+  display_name: Baseball
+
+season:
+  default_exclude_game_types:
+    - preseason
+    - allstar

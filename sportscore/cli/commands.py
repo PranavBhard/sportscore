@@ -267,6 +267,8 @@ class DbIngestionCommand(SportCommand):
                             help="Skip ESPN data pull")
         parser.add_argument("--skip-post", action="store_true",
                             help="Skip post-processing (teams, players, venues, rosters)")
+        parser.add_argument("--skip-enrichment", action="store_true",
+                            help="Skip enrichment from external data sources")
         parser.add_argument("--dry-run", action="store_true",
                             help="Show what would be done without modifying data")
         parser.add_argument("--verbose", "-v", action="store_true",
@@ -284,6 +286,7 @@ class DbIngestionCommand(SportCommand):
             max_workers=args.max_workers,
             skip_espn=args.skip_espn,
             skip_post=args.skip_post,
+            skip_enrichment=getattr(args, 'skip_enrichment', False),
             dry_run=args.dry_run,
             verbose=args.verbose,
         )

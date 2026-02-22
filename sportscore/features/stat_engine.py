@@ -223,8 +223,8 @@ class StatEngine:
         if time_period in ("season", "none", "career"):
             return games
 
-        # games_N — last N games (basketball's primary windowing)
-        match = re.match(r"games_(\d+)$", time_period)
+        # games_N / matches_N — last N games
+        match = re.match(r"(?:games|matches)_(\d+)$", time_period)
         if match:
             n = int(match.group(1))
             return games[-n:] if len(games) > n else games

@@ -13,10 +13,11 @@ import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, log_loss, brier_score_loss, roc_auc_score
+from sklearn.metrics import accuracy_score, log_loss, roc_auc_score
 from bson import ObjectId
 
 from sportscore.training.model_factory import create_model_with_c
+from sportscore.training.model_evaluation import _multiclass_brier_score, _classify
 from sportscore.training.run_tracker import RunTracker
 from sportscore.training.cache_utils import read_csv_safe
 
@@ -94,7 +95,11 @@ class BaseStackingTrainer(ABC):
         use_disagree: bool = False,
         use_conf: bool = False,
         use_logit: bool = False,
-        logit_eps: float = 1e-6
+        logit_eps: float = 1e-6,
+        meta_calibration_method: Optional[str] = None,
+        meta_train_years: Optional[List[int]] = None,
+        meta_calibration_years: Optional[List[int]] = None,
+        meta_evaluation_year: Optional[int] = None,
     ) -> Dict:
         """
         Train a stacked model that combines multiple base model predictions.
@@ -164,6 +169,10 @@ class BaseStackingTrainer(ABC):
             'use_conf': use_conf,
             'use_logit': use_logit,
             'logit_eps': logit_eps,
+            'meta_calibration_method': meta_calibration_method,
+            'meta_train_years': meta_train_years,
+            'meta_calibration_years': meta_calibration_years,
+            'meta_evaluation_year': meta_evaluation_year,
             'splits': ref_splits,
             'features': ref_config.get('features', {})
         }
@@ -210,7 +219,7 @@ class BaseStackingTrainer(ABC):
                                  if k not in excluded_keys}
 
             # Add all base model features to the dataset request
-            dataset_spec_clean['individual_features'] = list(all_base_features)
+            dataset_spec_clean['individual_features'] = sorted(all_base_features)
 
             # Ensure begin_year is set
             if 'begin_year' not in dataset_spec_clean:
@@ -241,19 +250,62 @@ class BaseStackingTrainer(ABC):
             df_train = df[train_mask].copy()
 
             if len(df_cal) == 0:
-                raise ValueError(f"No data found for calibration years {calibration_years}")
+                unique_seasons = sorted(df['SeasonStartYear'].unique().tolist())
+                raise ValueError(
+                    f"No data found for calibration years {calibration_years}. "
+                    f"Dataset has SeasonStartYear values: {unique_seasons}"
+                )
             if len(df_eval) == 0:
-                raise ValueError(f"No data found for evaluation year {evaluation_year}")
+                unique_seasons = sorted(df['SeasonStartYear'].unique().tolist())
+                raise ValueError(
+                    f"No data found for evaluation year {evaluation_year}. "
+                    f"Dataset has SeasonStartYear values: {unique_seasons}"
+                )
 
             print(f"[STACKING] Temporal split:")
             print(f"[STACKING]   Base model train period: {begin_year} to {min(calibration_years)-1 if calibration_years else evaluation_year-1} ({len(df_train)} games)")
             print(f"[STACKING]   Meta-model training (calibration only): {calibration_years} ({len(df_cal)} games)")
             print(f"[STACKING]   Evaluation period: {evaluation_year} ({len(df_eval)} games)")
 
-            # Generate stacking data from calibration period
+            # --- Meta-model data splits ---
+            # When meta_calibration_method is set, we do a 3-way meta split:
+            #   meta_train_years  -> train meta-model
+            #   meta_calibration_years -> fit calibrator
+            #   meta_evaluation_year   -> evaluate
+            # Otherwise (default): df_cal -> train meta, df_eval -> evaluate, no calibrator.
+            meta_calibrator = None
+
+            if meta_calibration_method:
+                if not meta_train_years or not meta_calibration_years or not meta_evaluation_year:
+                    raise ValueError(
+                        "When meta_calibration_method is set, meta_train_years, "
+                        "meta_calibration_years, and meta_evaluation_year are all required."
+                    )
+
+                df_meta_train = df[df['SeasonStartYear'].isin(meta_train_years)].copy()
+                df_meta_cal = df[df['SeasonStartYear'].isin(meta_calibration_years)].copy()
+                df_meta_eval = df[df['SeasonStartYear'] == meta_evaluation_year].copy()
+
+                if len(df_meta_train) == 0:
+                    raise ValueError(f"No data found for meta_train_years {meta_train_years}")
+                if len(df_meta_cal) == 0:
+                    raise ValueError(f"No data found for meta_calibration_years {meta_calibration_years}")
+                if len(df_meta_eval) == 0:
+                    raise ValueError(f"No data found for meta_evaluation_year {meta_evaluation_year}")
+
+                print(f"[STACKING] Meta 3-way split (with calibration):")
+                print(f"[STACKING]   Meta-train: {meta_train_years} ({len(df_meta_train)} games)")
+                print(f"[STACKING]   Meta-cal:   {meta_calibration_years} ({len(df_meta_cal)} games)")
+                print(f"[STACKING]   Meta-eval:  {meta_evaluation_year} ({len(df_meta_eval)} games)")
+            else:
+                df_meta_train = df_cal
+                df_meta_cal = None
+                df_meta_eval = df_eval
+
+            # Generate stacking data from meta-train period
             stacking_df = self._generate_stacking_data(
                 base_models_info=base_models_info,
-                df=df_cal,
+                df=df_meta_train,
                 calibration_years=calibration_years,
                 stacking_mode=stacking_mode,
                 meta_features=meta_features,
@@ -263,30 +315,52 @@ class BaseStackingTrainer(ABC):
                 logit_eps=logit_eps
             )
 
-            # Train meta-model on calibration predictions
+            # Train meta-model on meta-train predictions
             meta_model, meta_scaler = self._train_meta_model(
                 stacking_df=stacking_df,
                 meta_model_type=meta_model_type,
                 meta_c_value=meta_c_value
             )
 
+            # Fit calibrator on meta-cal period if requested
+            if meta_calibration_method and df_meta_cal is not None:
+                stacking_df_cal = self._generate_stacking_data(
+                    base_models_info=base_models_info,
+                    df=df_meta_cal,
+                    calibration_years=calibration_years,
+                    stacking_mode=stacking_mode,
+                    meta_features=meta_features,
+                    use_disagree=use_disagree,
+                    use_conf=use_conf,
+                    use_logit=use_logit,
+                    logit_eps=logit_eps
+                )
+                meta_calibrator = self._fit_meta_calibrator(
+                    meta_model=meta_model,
+                    meta_scaler=meta_scaler,
+                    stacking_df_cal=stacking_df_cal,
+                    method=meta_calibration_method
+                )
+
             # Evaluate stacked model on evaluation period
             metrics, diagnostics = self._evaluate_stacked_model(
                 meta_model=meta_model,
                 meta_scaler=meta_scaler,
                 base_models_info=base_models_info,
-                df=df_eval,
-                evaluation_year=evaluation_year,
+                df=df_meta_eval,
+                evaluation_year=meta_evaluation_year if meta_calibration_method else evaluation_year,
                 calibration_years=calibration_years,
                 begin_year=begin_year,
                 n_train_samples=len(df_train),
-                n_cal_samples=len(df_cal),
+                n_cal_samples=len(df_meta_train),
                 stacking_mode=stacking_mode,
                 meta_features=meta_features,
                 use_disagree=use_disagree,
                 use_conf=use_conf,
                 use_logit=use_logit,
-                logit_eps=logit_eps
+                logit_eps=logit_eps,
+                meta_calibrator=meta_calibrator,
+                meta_calibration_method=meta_calibration_method,
             )
 
             # Save ensemble artifacts to disk
@@ -304,7 +378,9 @@ class BaseStackingTrainer(ABC):
                 use_disagree=use_disagree,
                 use_conf=use_conf,
                 use_logit=use_logit,
-                logit_eps=logit_eps
+                logit_eps=logit_eps,
+                meta_calibrator=meta_calibrator,
+                meta_calibration_method=meta_calibration_method,
             )
 
             # Prepare artifacts with file paths
@@ -536,7 +612,9 @@ class BaseStackingTrainer(ABC):
         use_disagree: bool = False,
         use_conf: bool = False,
         use_logit: bool = False,
-        logit_eps: float = 1e-6
+        logit_eps: float = 1e-6,
+        meta_calibrator=None,
+        meta_calibration_method: Optional[str] = None,
     ) -> Dict[str, str]:
         """
         Save ensemble model artifacts to disk for later loading.
@@ -552,6 +630,7 @@ class BaseStackingTrainer(ABC):
         model_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_model.pkl')
         scaler_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_scaler.pkl')
         config_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_ensemble_config.json')
+        calibrator_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_calibrator.pkl') if meta_calibrator else None
 
         try:
             with open(model_path, 'wb') as f:
@@ -562,6 +641,11 @@ class BaseStackingTrainer(ABC):
                 with open(scaler_path, 'wb') as f:
                     pickle.dump(meta_scaler, f)
                 print(f"[STACKING] Saved meta-scaler: {scaler_path}")
+
+            if meta_calibrator is not None:
+                with open(calibrator_path, 'wb') as f:
+                    pickle.dump(meta_calibrator, f)
+                print(f"[STACKING] Saved meta-calibrator: {calibrator_path}")
 
             ensemble_config = {
                 'run_id': run_id,
@@ -574,19 +658,23 @@ class BaseStackingTrainer(ABC):
                 'use_disagree': use_disagree,
                 'use_conf': use_conf,
                 'use_logit': use_logit,
-                'logit_eps': logit_eps
+                'logit_eps': logit_eps,
+                'meta_calibration_method': meta_calibration_method,
             }
             with open(config_path, 'w') as f:
                 json.dump(ensemble_config, f, indent=2)
             print(f"[STACKING] Saved ensemble config: {config_path}")
 
-            return {
+            result = {
                 'meta_model_path': model_path,
                 'meta_scaler_path': scaler_path,
                 'ensemble_config_path': config_path,
                 'meta_model_type': meta_model_type,
                 'meta_c_value': meta_c_value
             }
+            if calibrator_path:
+                result['meta_calibrator_path'] = calibrator_path
+            return result
 
         except Exception as e:
             print(f"[STACKING] Error saving ensemble artifacts: {e}")
@@ -715,7 +803,7 @@ class BaseStackingTrainer(ABC):
 
             # Get predictions
             y_proba = model.predict_proba(X_scaled)
-            p_home_win = y_proba[:, 1]
+            n_classes = y_proba.shape[1]
 
             # Store predictions with model identifier
             config = model_info.get('config', {})
@@ -734,7 +822,13 @@ class BaseStackingTrainer(ABC):
                 counter += 1
             used_model_names.add(model_id_short)
 
-            stacking_data[f'p_{model_id_short}'] = p_home_win
+            if n_classes == 2:
+                # Binary: single P(home) column
+                stacking_data[f'p_{model_id_short}'] = y_proba[:, 1]
+            else:
+                # Ternary: store P(home) and P(draw), P(away) is redundant
+                stacking_data[f'p_home_{model_id_short}'] = y_proba[:, 2]  # home = class 2
+                stacking_data[f'p_draw_{model_id_short}'] = y_proba[:, 1]  # draw = class 1
 
         # p_* column names (used for informed derived features and for logit transform)
         pred_col_names = [col for col in stacking_data.keys() if col.startswith('p_')]
@@ -754,10 +848,20 @@ class BaseStackingTrainer(ABC):
                         stacking_data[disagree_name] = np.abs(stacking_data[col_i] - stacking_data[col_j])
 
             if use_conf:
-                for col in pred_col_names:
-                    model_id = col.replace('p_', '')
-                    conf_name = f'conf_{model_id}'
-                    stacking_data[conf_name] = np.abs(stacking_data[col] - 0.5)
+                if n_classes == 2:
+                    # Binary: distance from 0.5
+                    for col in pred_col_names:
+                        model_id = col.replace('p_', '')
+                        conf_name = f'conf_{model_id}'
+                        stacking_data[conf_name] = np.abs(stacking_data[col] - 0.5)
+                else:
+                    # Ternary: max probability - 1/3 for each model
+                    for mid in used_model_names:
+                        p_home = stacking_data[f'p_home_{mid}']
+                        p_draw = stacking_data[f'p_draw_{mid}']
+                        p_away = 1.0 - p_home - p_draw
+                        max_p = np.maximum(p_home, np.maximum(p_draw, p_away))
+                        stacking_data[f'conf_{mid}'] = max_p - 1.0 / 3
 
             # Add user-provided features
             if meta_features:
@@ -780,7 +884,7 @@ class BaseStackingTrainer(ABC):
 
         # Apply logit transform to p_* columns (after conf/disagree computed on raw scale)
         if use_logit:
-            logit_pred_cols = [c for c in pred_col_names if c.startswith('p_')]
+            logit_pred_cols = [c for c in pred_col_names]
             for col in logit_pred_cols:
                 p = stacking_data[col]
                 p_clipped = np.clip(p, logit_eps, 1 - logit_eps)
@@ -797,7 +901,18 @@ class BaseStackingTrainer(ABC):
         stacking_df[feature_cols] = stacking_df[feature_cols].fillna(0.0)
 
         # Drop rows where target is NaN
+        n_before = len(stacking_df)
         stacking_df = stacking_df.dropna(subset=[self.TARGET_COL])
+        n_after = len(stacking_df)
+
+        if n_after == 0:
+            target_null = df[self.TARGET_COL].isna().sum() if self.TARGET_COL in df.columns else 'column missing'
+            raise ValueError(
+                f"Stacking data has 0 rows after dropping NaN targets "
+                f"(had {n_before} before dropna, {len(df)} input rows, "
+                f"target NaN count: {target_null}, "
+                f"features: {feature_cols})"
+            )
 
         return stacking_df
 
@@ -816,6 +931,14 @@ class BaseStackingTrainer(ABC):
         feature_cols = [c for c in stacking_df.columns if c != self.TARGET_COL]
         X_meta = stacking_df[feature_cols].values
         y_meta = stacking_df[self.TARGET_COL].values
+
+        if len(X_meta) == 0:
+            raise ValueError(
+                f"Meta-model training data is empty (0 rows, {len(feature_cols)} features: {feature_cols}). "
+                f"Check that calibration period has games with valid target values."
+            )
+
+        print(f"[STACKING] Training {meta_model_type} meta-model on {len(X_meta)} samples, {len(feature_cols)} features")
 
         # Handle NaN/Inf
         X_meta = np.nan_to_num(X_meta, nan=0.0, posinf=0.0, neginf=0.0)
@@ -846,7 +969,9 @@ class BaseStackingTrainer(ABC):
         use_disagree: bool = False,
         use_conf: bool = False,
         use_logit: bool = False,
-        logit_eps: float = 1e-6
+        logit_eps: float = 1e-6,
+        meta_calibrator=None,
+        meta_calibration_method: Optional[str] = None,
     ) -> Tuple[Dict, Dict]:
         """
         Evaluate stacked model on evaluation period.
@@ -881,15 +1006,23 @@ class BaseStackingTrainer(ABC):
 
         # Get meta-model predictions
         y_proba_meta = meta_model.predict_proba(X_meta)
-        y_pred_meta = (y_proba_meta[:, 1] >= 0.5).astype(int)
+
+        # Apply meta-calibrator if present
+        if meta_calibrator is not None:
+            y_proba_meta = self._apply_meta_calibrator(y_proba_meta, meta_calibrator)
+
+        y_pred_meta = _classify(y_proba_meta)
 
         # Calculate metrics
         accuracy = accuracy_score(y_true, y_pred_meta) * 100
         log_loss_val = log_loss(y_true, y_proba_meta)
-        brier = brier_score_loss(y_true, y_proba_meta[:, 1])
+        brier = _multiclass_brier_score(y_true, y_proba_meta)
 
         try:
-            auc = roc_auc_score(y_true, y_proba_meta[:, 1])
+            if y_proba_meta.shape[1] == 2:
+                auc = roc_auc_score(y_true, y_proba_meta[:, 1])
+            else:
+                auc = roc_auc_score(y_true, y_proba_meta, multi_class='ovr')
         except ValueError:
             auc = 0.0
 
@@ -910,8 +1043,11 @@ class BaseStackingTrainer(ABC):
         # Calculate meta-model feature importances
         meta_feature_importances = {}
         if hasattr(meta_model, 'coef_'):
-            coef = meta_model.coef_[0] if len(meta_model.coef_.shape) > 1 else meta_model.coef_
-            meta_feature_importances = dict(zip(feature_cols, np.abs(coef).tolist()))
+            if meta_model.coef_.ndim == 1 or meta_model.coef_.shape[0] == 1:
+                coef = np.abs(meta_model.coef_.ravel())
+            else:
+                coef = np.mean(np.abs(meta_model.coef_), axis=0)
+            meta_feature_importances = dict(zip(feature_cols, coef.tolist()))
             meta_feature_importances = dict(sorted(
                 meta_feature_importances.items(),
                 key=lambda x: x[1],
@@ -950,14 +1086,17 @@ class BaseStackingTrainer(ABC):
                     X_base_scaled = X_base
 
                 y_proba_base = model.predict_proba(X_base_scaled)
-                y_pred_base = (y_proba_base[:, 1] >= 0.5).astype(int)
+                y_pred_base = _classify(y_proba_base)
                 y_true_base = df[self.TARGET_COL].values
 
                 base_accuracy = accuracy_score(y_true_base, y_pred_base) * 100
                 base_log_loss = log_loss(y_true_base, y_proba_base)
-                base_brier = brier_score_loss(y_true_base, y_proba_base[:, 1])
+                base_brier = _multiclass_brier_score(y_true_base, y_proba_base)
                 try:
-                    base_auc = roc_auc_score(y_true_base, y_proba_base[:, 1])
+                    if y_proba_base.shape[1] == 2:
+                        base_auc = roc_auc_score(y_true_base, y_proba_base[:, 1])
+                    else:
+                        base_auc = roc_auc_score(y_true_base, y_proba_base, multi_class='ovr')
                 except ValueError:
                     base_auc = 0.0
 
@@ -995,7 +1134,7 @@ class BaseStackingTrainer(ABC):
         meta_features_used = []
         if stacking_mode == 'informed':
             all_cols = set(stacking_df.columns)
-            pred_cols_set = {col for col in all_cols if col.startswith('p_')}
+            pred_cols_set = {col for col in all_cols if col.startswith('p_') or col.startswith('p_home_') or col.startswith('p_draw_')}
             target_cols_set = {self.TARGET_COL}
 
             derived_features_used = [col for col in all_cols if col.startswith('disagree_') or col.startswith('conf_')]
@@ -1023,7 +1162,112 @@ class BaseStackingTrainer(ABC):
             'use_logit': use_logit,
             'logit_eps': logit_eps,
             'meta_features_used': meta_features_used,
-            'derived_features_used': derived_features_used
+            'derived_features_used': derived_features_used,
+            'meta_calibration_method': meta_calibration_method,
+            'meta_calibrated': meta_calibrator is not None,
         }
 
         return metrics, diagnostics
+
+    def _fit_meta_calibrator(
+        self,
+        meta_model,
+        meta_scaler,
+        stacking_df_cal: pd.DataFrame,
+        method: str,
+    ):
+        """
+        Fit a calibrator on held-out meta-model predictions.
+
+        Args:
+            meta_model: Trained meta-model
+            meta_scaler: Fitted scaler for meta features
+            stacking_df_cal: Stacking data for calibration period
+            method: 'isotonic' or 'sigmoid'
+
+        Returns:
+            Fitted calibrator object (IsotonicRegression, dict with 'sigmoid' LR, or dict with 'temperature')
+        """
+        from sklearn.isotonic import IsotonicRegression
+        from sklearn.linear_model import LogisticRegression as LR
+
+        feature_cols = [c for c in stacking_df_cal.columns if c != self.TARGET_COL]
+        X_cal = stacking_df_cal[feature_cols].values
+        y_cal = stacking_df_cal[self.TARGET_COL].values
+
+        X_cal = np.nan_to_num(X_cal, nan=0.0, posinf=0.0, neginf=0.0)
+        if meta_scaler is not None:
+            X_cal = meta_scaler.transform(X_cal)
+
+        y_proba_raw = meta_model.predict_proba(X_cal)
+        n_classes = y_proba_raw.shape[1]
+
+        if n_classes == 2:
+            # Binary calibration
+            if method == 'isotonic':
+                calibrator = IsotonicRegression(out_of_bounds='clip')
+                calibrator.fit(y_proba_raw[:, 1], y_cal)
+                print(f"[STACKING] Fitted isotonic meta-calibrator on {len(y_cal)} samples")
+                return calibrator
+            elif method == 'sigmoid':
+                sigmoid_lr = LR()
+                sigmoid_lr.fit(y_proba_raw[:, 1].reshape(-1, 1), y_cal)
+                print(f"[STACKING] Fitted sigmoid meta-calibrator on {len(y_cal)} samples")
+                return {'type': 'sigmoid', 'model': sigmoid_lr}
+            else:
+                raise ValueError(f"Unknown meta_calibration_method: {method}")
+        else:
+            # Multi-class: temperature scaling
+            from sklearn.metrics import log_loss as sk_log_loss
+            from scipy.optimize import minimize_scalar
+
+            def _temperature_scale(proba, T):
+                logits = np.log(np.clip(proba, 1e-15, 1.0))
+                scaled = logits / T
+                exp_s = np.exp(scaled - scaled.max(axis=1, keepdims=True))
+                return exp_s / exp_s.sum(axis=1, keepdims=True)
+
+            def _nll(T):
+                return sk_log_loss(y_cal, _temperature_scale(y_proba_raw, T))
+
+            result = minimize_scalar(_nll, bounds=(0.1, 10.0), method='bounded')
+            T_opt = result.x
+            print(f"[STACKING] Fitted temperature scaling meta-calibrator: T={T_opt:.3f}")
+            return {'type': 'temperature', 'T': T_opt}
+
+    @staticmethod
+    def _apply_meta_calibrator(y_proba_raw: np.ndarray, calibrator) -> np.ndarray:
+        """
+        Apply a fitted calibrator to raw meta-model probabilities.
+
+        Args:
+            y_proba_raw: Raw probabilities from meta-model, shape (n_samples, n_classes)
+            calibrator: Fitted calibrator (IsotonicRegression, sigmoid dict, or temperature dict)
+
+        Returns:
+            Calibrated probabilities, same shape as input
+        """
+        from sklearn.isotonic import IsotonicRegression
+
+        if isinstance(calibrator, IsotonicRegression):
+            # Binary isotonic
+            cal_1 = calibrator.predict(y_proba_raw[:, 1])
+            cal_1 = np.clip(cal_1, 0.0, 1.0)
+            return np.column_stack([1 - cal_1, cal_1])
+        elif isinstance(calibrator, dict):
+            cal_type = calibrator.get('type')
+            if cal_type == 'sigmoid':
+                lr_model = calibrator['model']
+                cal_1 = lr_model.predict_proba(y_proba_raw[:, 1].reshape(-1, 1))[:, 1]
+                cal_1 = np.clip(cal_1, 0.0, 1.0)
+                return np.column_stack([1 - cal_1, cal_1])
+            elif cal_type == 'temperature':
+                T = calibrator['T']
+                logits = np.log(np.clip(y_proba_raw, 1e-15, 1.0))
+                scaled = logits / T
+                exp_s = np.exp(scaled - scaled.max(axis=1, keepdims=True))
+                return exp_s / exp_s.sum(axis=1, keepdims=True)
+            else:
+                raise ValueError(f"Unknown calibrator type: {cal_type}")
+        else:
+            raise ValueError(f"Unknown calibrator object: {type(calibrator)}")

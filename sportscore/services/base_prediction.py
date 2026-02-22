@@ -65,6 +65,7 @@ class BasePredictionService(ABC):
         Returns a dict with at minimum:
         - home_win_prob: float (0-1)
         - away_win_prob: float (0-1)
+        - draw_prob: float (0-1, optional — provided for 3-way sports like soccer)
         - model_id: str
         """
         ...

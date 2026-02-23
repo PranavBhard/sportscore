@@ -39,6 +39,14 @@ class BaseStackingTrainer(ABC):
     META_MODEL_TYPES = META_MODEL_TYPES
     C_SUPPORTED_META_MODELS = C_SUPPORTED_META_MODELS
 
+    def _get_ensembles_dir(self) -> str:
+        """Resolve ENSEMBLE_DIR to an absolute path using league repo root."""
+        if os.path.isabs(self.ENSEMBLE_DIR):
+            return self.ENSEMBLE_DIR
+        if self.league and hasattr(self.league, '_repo_root'):
+            return os.path.join(self.league._repo_root, self.ENSEMBLE_DIR)
+        return os.path.abspath(self.ENSEMBLE_DIR)
+
     def __init__(self, db=None, league=None):
         """
         Initialize BaseStackingTrainer.
@@ -625,12 +633,13 @@ class BaseStackingTrainer(ABC):
         import pickle
         import json
 
-        os.makedirs(self.ENSEMBLE_DIR, exist_ok=True)
+        ensembles_dir = self._get_ensembles_dir()
+        os.makedirs(ensembles_dir, exist_ok=True)
 
-        model_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_model.pkl')
-        scaler_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_scaler.pkl')
-        config_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_ensemble_config.json')
-        calibrator_path = os.path.join(self.ENSEMBLE_DIR, f'{run_id}_meta_calibrator.pkl') if meta_calibrator else None
+        model_path = os.path.join(ensembles_dir, f'{run_id}_meta_model.pkl')
+        scaler_path = os.path.join(ensembles_dir, f'{run_id}_meta_scaler.pkl')
+        config_path = os.path.join(ensembles_dir, f'{run_id}_ensemble_config.json')
+        calibrator_path = os.path.join(ensembles_dir, f'{run_id}_meta_calibrator.pkl') if meta_calibrator else None
 
         try:
             with open(model_path, 'wb') as f:

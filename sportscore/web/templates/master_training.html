@@ -1,0 +1,2797 @@
+{% extends "base.html" %}
+
+{% block title %}Master Training Data{% endblock %}
+
+{% block styles %}
+<style>
+    /* Override base container constraints for full-width table */
+    .container {
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+    
+    body {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    
+    .master-training-container {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        padding: 20px;
+    }
+    
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .filter-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        width: 100%;
+    }
+    
+    .filter-input-wrapper {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        gap: 4px;
+    }
+    
+    .column-count {
+        font-size: 11px;
+        color: #999;
+        margin-top: 2px;
+    }
+    
+    .controls input[type="text"],
+    .controls select {
+        padding: 8px 12px;
+        border: 2px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    
+    .controls input[type="text"] {
+        width: 100%;
+    }
+    
+    #filterMatchMode {
+        min-width: 80px;
+        flex-shrink: 0;
+    }
+    
+    .sort-row {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    
+    .sort-row select {
+        min-width: 150px;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    
+    .table-wrapper {
+        overflow-x: auto;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        max-height: calc(100vh - 300px);
+        overflow-y: auto;
+        width: 100%;
+        max-width: 100%;
+    }
+    
+    table {
+        width: 100%;
+        max-width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        table-layout: auto;
+    }
+    
+    thead {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
+        box-shadow: 0 2px 2px rgba(0,0,0,0.1);
+    }
+    
+    th {
+        padding: 12px 8px;
+        text-align: left;
+        font-weight: 600;
+        color: #333;
+        border-bottom: 2px solid #ddd;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        position: relative;
+    }
+    
+    th:hover {
+        background: #f5f5f5;
+    }
+    
+    /* Delete button on column headers */
+    .column-delete-btn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 18px;
+        height: 18px;
+        line-height: 18px;
+        text-align: center;
+        background: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        font-size: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        z-index: 100;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    th:hover .column-delete-btn {
+        opacity: 1;
+    }
+    
+    .column-delete-btn:hover {
+        background: #c82333;
+    }
+    
+    /* Don't show delete button on metadata columns */
+    th.metadata-column .column-delete-btn {
+        display: none;
+    }
+    
+    th.sortable {
+        position: relative;
+        padding-right: 20px;
+    }
+    
+    th.sortable::after {
+        content: '↕';
+        position: absolute;
+        right: 5px;
+        opacity: 0.3;
+    }
+    
+    th.sort-asc::after {
+        content: '↑';
+        opacity: 1;
+    }
+    
+    th.sort-desc::after {
+        content: '↓';
+        opacity: 1;
+    }
+    
+    td {
+        padding: 10px 8px;
+        border-bottom: 1px solid #eee;
+        white-space: nowrap;
+    }
+    
+    tbody tr:hover {
+        background: #f9f9f9;
+    }
+    
+    .loading-indicator {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+    }
+
+    .stats {
+        margin-bottom: 15px;
+        color: #666;
+        font-size: 14px;
+    }
+
+    .scroll-hint {
+        display: inline-block;
+        margin-left: 10px;
+        padding: 2px 8px;
+        background: #e3f2fd;
+        color: #1976d2;
+        border-radius: 4px;
+        font-size: 12px;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+
+    .column-loading-indicator {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        z-index: 1000;
+        display: none;
+    }
+
+    .column-loading-indicator.active {
+        display: block;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+    }
+    
+    /* Metadata columns (sticky on left) */
+    th.metadata-column,
+    td.metadata-column {
+        position: sticky;
+        background: white;
+        z-index: 5;
+        border-right: 2px solid #ddd;
+        box-shadow: 2px 0 2px rgba(0,0,0,0.05);
+    }
+    
+    /* Ensure metadata columns in header have higher z-index */
+    thead th.metadata-column {
+        z-index: 20;
+        background: white;
+        box-shadow: 2px 2px 2px rgba(0,0,0,0.05);
+    }
+    
+    /* Highlight on hover for sticky columns */
+    tbody tr:hover td.metadata-column {
+        background: #f9f9f9;
+    }
+    
+    thead th.metadata-column:hover {
+        background: #f5f5f5;
+    }
+    
+    /* Link styling for game_id */
+    td.metadata-column a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    
+    td.metadata-column a:hover {
+        text-decoration: underline;
+        color: #5568d3;
+    }
+    
+    /* Feature regeneration UI */
+    .regenerate-btn {
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: background 0.2s;
+    }
+    
+    .regenerate-btn:hover:not(:disabled) {
+        background: #218838;
+    }
+    
+    .regenerate-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+    
+    .feature-selection-info {
+        font-size: 13px;
+        color: #666;
+    }
+    
+    /* Dependency confirmation modal */
+    .dependency-confirmation-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+    }
+    
+    .dependency-confirmation-content {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        max-width: 900px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .dependency-confirmation-content h2 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    .dependency-confirmation-content h3 {
+        margin-top: 20px;
+        margin-bottom: 10px;
+        color: #555;
+        font-size: 16px;
+    }
+    
+    .dependency-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 15px;
+        background: #f9f9f9;
+        border-radius: 4px;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+    
+    .dependency-list-item {
+        padding: 4px 0;
+    }
+    
+    .feature-requested {
+        color: #1976d2;
+        font-weight: normal;
+    }
+    
+    .feature-dependency {
+        color: #d32f2f;
+        font-weight: bold;
+    }
+    
+    .dependency-details {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 10px;
+        background: #f9f9f9;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.8;
+    }
+    
+    .dependency-detail-item {
+        margin-bottom: 10px;
+    }
+    
+    .dependency-detail-item strong {
+        color: #333;
+    }
+    
+    .dependency-warning {
+        color: #d32f2f;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    
+    .dependency-info {
+        color: #388e3c;
+        margin: 10px 0;
+    }
+    
+    .dependency-buttons {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+    }
+    
+    .dependency-btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    
+    .dependency-btn-cancel {
+        background: #ccc;
+        color: #333;
+    }
+    
+    .dependency-btn-cancel:hover {
+        background: #bbb;
+    }
+    
+    .dependency-btn-confirm {
+        background: #1976d2;
+        color: white;
+    }
+    
+    .dependency-btn-confirm:hover {
+        background: #1565c0;
+    }
+    
+    /* Progress container (reused from model_config) */
+    .job-progress-container {
+        margin: 20px 0;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        display: none;
+    }
+    
+    .job-progress-container.active {
+        display: block;
+    }
+    
+    .progress-bar-container {
+        width: 100%;
+        height: 24px;
+        background: #e0e0e0;
+        border-radius: 12px;
+        overflow: hidden;
+        margin: 10px 0;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #4caf50, #8bc34a);
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    
+    .progress-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 10px;
+    }
+    
+    .progress-message {
+        color: #666;
+        font-size: 14px;
+    }
+    
+    .job-error {
+        color: #d32f2f;
+        margin-top: 10px;
+        padding: 10px;
+        background: #ffebee;
+        border-radius: 4px;
+        display: none;
+    }
+    
+    /* Page header with Add Column button */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .page-header h1 {
+        margin: 0;
+    }
+    
+    .add-column-btn {
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background 0.2s;
+    }
+    
+    .add-column-btn:hover {
+        background: #5568d3;
+    }
+    
+    .add-column-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+    
+    /* Add Column Modal */
+    .add-column-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+    }
+    
+    .add-column-modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        max-width: 700px;
+        width: 90%;
+        max-height: 92vh;
+        height: 92vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .add-column-modal-content h2 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        color: #333;
+    }
+    
+    .feature-input-wrapper {
+        position: relative;
+        margin-bottom: 15px;
+    }
+    
+    .feature-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 2px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+    
+    .feature-input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .autocomplete-suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        /* Larger dropdown; scroll within suggestions */
+        max-height: min(75vh, 720px);
+        min-height: 360px;
+        overflow-y: auto;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        display: none;
+    }
+    
+    .autocomplete-suggestions.show {
+        display: block;
+    }
+
+    .suggestion-actions {
+        padding: 8px 10px;
+        border-bottom: 1px solid #eee;
+        background: #fafafa;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .suggestion-actions button {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid #d7d7d7;
+        border-radius: 6px;
+        background: white;
+        color: #333;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .suggestion-actions button:hover:not(:disabled) {
+        background: #f5f5f5;
+    }
+
+    .suggestion-actions button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+    
+    .suggestion-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .suggestion-item:hover,
+    .suggestion-item.highlighted {
+        background: #f5f5f5;
+    }
+    
+    .suggestion-item:last-child {
+        border-bottom: none;
+    }
+    
+    .feature-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 15px;
+        min-height: 40px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: #f9f9f9;
+    }
+    
+    .feature-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: #667eea;
+        color: white;
+        border-radius: 20px;
+        font-size: 13px;
+    }
+    
+    .feature-tag .tag-remove {
+        cursor: pointer;
+        font-weight: bold;
+        padding: 0 4px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.2);
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+    
+    .feature-tag .tag-remove:hover {
+        background: rgba(255,255,255,0.3);
+    }
+    
+    .add-column-modal-buttons {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+    }
+    
+    .modal-btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    
+    .modal-btn-cancel {
+        background: #ccc;
+        color: #333;
+    }
+    
+    .modal-btn-cancel:hover {
+        background: #bbb;
+    }
+    
+    .modal-btn-confirm {
+        background: #667eea;
+        color: white;
+    }
+    
+    .modal-btn-confirm:hover {
+        background: #5568d3;
+    }
+    
+    .modal-btn-confirm:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+    
+    .modal-error {
+        color: #d32f2f;
+        margin-top: 10px;
+        padding: 10px;
+        background: #ffebee;
+        border-radius: 4px;
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="master-training-container">
+    <div class="page-header">
+        <div>
+            <h1>Master Training Data</h1>
+            <p class="subtitle">Browse and filter the master training dataset</p>
+        </div>
+        <button class="add-column-btn" onclick="openAddColumnModal()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="3" x2="8" y2="13"></line>
+                <line x1="3" y1="8" x2="13" y2="8"></line>
+            </svg>
+            Add Column
+        </button>
+    </div>
+    
+    <div class="stats" id="stats">
+        Loading...
+    </div>
+    
+    <div class="job-progress-container" id="jobProgressContainer">
+        <h3 style="margin-top: 0;">Regeneration Progress</h3>
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="jobProgressBar" style="width: 0%;">0%</div>
+        </div>
+        <div class="progress-info">
+            <span class="progress-message" id="jobProgressMessage">Initializing...</span>
+            <span class="progress-percent" id="jobProgressPercent">0%</span>
+        </div>
+        <div class="job-error" id="jobError"></div>
+    </div>
+    
+    <div class="controls">
+        <div class="filter-row">
+            <div class="filter-input-wrapper">
+                <input 
+                    type="text" 
+                    id="columnFilter" 
+                    placeholder="Filter column names (comma-separated, e.g., 'points,season')"
+                >
+                <div class="column-count" id="columnCount">Visible columns: -</div>
+            </div>
+            <select id="filterMatchMode">
+                <option value="OR">OR</option>
+                <option value="AND">AND</option>
+            </select>
+        </div>
+        <div class="sort-row">
+            <select id="sortColumn">
+                <option value="">Sort by...</option>
+            </select>
+            <select id="sortDirection">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+            </select>
+        </div>
+        <div class="action-buttons">
+            <button id="regenerateBtn" class="regenerate-btn" onclick="regenerateSelectedFeatures()" style="padding: 8px 16px;">
+                Regenerate Features
+            </button>
+            <button onclick="openRegenerateSeasonsModal()" style="padding: 8px 16px; background: #ff9800; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Regenerate Seasons
+            </button>
+            <button onclick="confirmRegenerateFullMaster()" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Regenerate All
+            </button>
+            <button onclick="toggleDateFilters()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                Date Filters
+            </button>
+            <button onclick="resetFilters()" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                Reset
+            </button>
+        </div>
+    </div>
+    <div class="feature-selection-info" id="featureSelectionInfo" style="margin-bottom: 10px; font-size: 13px; color: #666;">
+        Use the filter above to select features to regenerate. Enter comma-separated substrings (e.g., "points,season"). Use OR/AND toggle to match any or all substrings. If filter is empty, all features will be regenerated.
+    </div>
+    
+    <div id="dateFiltersPanel" style="display: none; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+        <h3 style="margin-top: 0; margin-bottom: 15px;">Date Filters</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <!-- Date Range -->
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Date Range:</label>
+                <input type="date" id="dateStart" placeholder="Start date (YYYY-MM-DD)" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px;">
+                <input type="date" id="dateEnd" placeholder="End date (YYYY-MM-DD)" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <!-- Year Range -->
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Year Range:</label>
+                <input type="number" id="yearMin" placeholder="Min Year" min="2000" max="2100" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px;">
+                <input type="number" id="yearMax" placeholder="Max Year" min="2000" max="2100" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <!-- Month Range -->
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Month Range:</label>
+                <input type="number" id="monthMin" placeholder="Min Month" min="1" max="12" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px;">
+                <input type="number" id="monthMax" placeholder="Max Month" min="1" max="12" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <!-- Day Range -->
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Day Range:</label>
+                <input type="number" id="dayMin" placeholder="Min Day" min="1" max="31" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px;">
+                <input type="number" id="dayMax" placeholder="Max Day" min="1" max="31" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+        </div>
+        <button onclick="applyDateFilters()" style="margin-top: 15px; padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer;">
+            Apply Date Filters
+        </button>
+        <button onclick="clearDateFilters()" style="margin-top: 15px; margin-left: 10px; padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer;">
+            Clear Date Filters
+        </button>
+    </div>
+    
+    <div class="table-wrapper" id="tableWrapper">
+        <table id="dataTable">
+            <thead id="tableHead">
+                <tr id="headerRow"></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+        <div class="loading-indicator" id="loadingIndicator" style="display: none;">
+            Loading more rows...
+        </div>
+        <div class="column-loading-indicator" id="columnLoadingIndicator">
+            Loading more columns...
+        </div>
+    </div>
+</div>
+
+<!-- Add Column Modal -->
+<div class="add-column-modal" id="addColumnModal" style="display: none;">
+    <div class="add-column-modal-content">
+        <h2>Add Columns</h2>
+        <div class="feature-input-wrapper">
+            <input 
+                type="text" 
+                id="featureNameInput" 
+                class="feature-input" 
+                placeholder="Type feature name (e.g., points|season|avg|diff) or paste comma/newline-separated list"
+                autocomplete="off"
+            >
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                <div style="font-size: 12px; color: #666; font-weight: 600;">Match mode:</div>
+                <select id="addColumnFilterMatchMode" style="padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px;">
+                    <option value="OR" selected>OR</option>
+                    <option value="AND">AND</option>
+                </select>
+                <div style="font-size: 12px; color: #777;">Use comma-separated substrings, same as main filter.</div>
+            </div>
+            <div class="autocomplete-suggestions" id="autocompleteSuggestions"></div>
+        </div>
+        <div class="feature-tags" id="featureTags"></div>
+        <div class="modal-error" id="addColumnError"></div>
+        <div class="add-column-modal-buttons">
+            <button class="modal-btn modal-btn-cancel" onclick="closeAddColumnModal()">Cancel</button>
+            <button class="modal-btn modal-btn-confirm" id="confirmAddColumnsBtn" onclick="confirmAddColumns()" disabled>Add Columns</button>
+        </div>
+    </div>
+</div>
+
+<!-- Regenerate Seasons Modal -->
+<div class="add-column-modal" id="regenerateSeasonsModal" style="display: none;">
+    <div class="add-column-modal-content" style="max-width: 600px;">
+        <h2>Regenerate Seasons</h2>
+        <p style="color: #666; margin-bottom: 15px;">
+            Select seasons to regenerate. This will regenerate training data for the selected seasons
+            and merge them into the master training CSV in the correct order.
+        </p>
+
+        <div id="seasonsLoadingIndicator" style="text-align: center; padding: 20px; color: #666;">
+            Loading available seasons...
+        </div>
+
+        <div id="seasonsListContainer" style="display: none;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button onclick="selectAllSeasons()" style="padding: 6px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                    Select All
+                </button>
+                <button onclick="selectMissingSeasons()" style="padding: 6px 12px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                    Select Missing Only
+                </button>
+                <button onclick="deselectAllSeasons()" style="padding: 6px 12px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                    Deselect All
+                </button>
+            </div>
+
+            <div id="seasonsList" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px; background: #f9f9f9;">
+                <!-- Seasons will be populated dynamically -->
+            </div>
+
+            <div style="margin-top: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="noPlayerSeasons" style="width: 16px; height: 16px;">
+                    <span>Skip player-level features (faster)</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="modal-error" id="regenerateSeasonsError" style="display: none;"></div>
+
+        <div class="add-column-modal-buttons">
+            <button class="modal-btn modal-btn-cancel" onclick="closeRegenerateSeasonsModal()">Cancel</button>
+            <button class="modal-btn modal-btn-confirm" id="confirmRegenerateSeasonsBtn" onclick="confirmRegenerateSeasons()" disabled style="background: #ff9800;">
+                Regenerate Selected
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentOffset = 0;
+let initialLoadSize = 100;  // Initial load: 100 rows
+let pageSize = 50;  // Subsequent loads: 50 rows per scroll
+let allColumns = [];
+let filteredColumns = [];
+let visibleColumns = [];  // Columns currently rendered (subset of filteredColumns)
+let sortColumn = '';
+let sortDirection = 'asc';
+let columnFilter = '';
+let filterMatchMode = 'OR';  // 'OR' or 'AND'
+let isLoading = false;
+let hasMoreData = true;
+let totalRows = 0;
+let isInitialLoad = true;  // Track if this is the first load
+
+// Column lazy loading state
+const initialColumnCount = 30;  // Initial columns to load (including metadata)
+const columnBatchSize = 20;  // Columns to load on each horizontal scroll
+let isLoadingColumns = false;
+let hasMoreColumns = true;
+
+// Feature regeneration state
+let currentRegenerationJobId = null;
+let jobPollInterval = null;
+
+// Add column state
+let currentAddColumnJobId = null;
+let addColumnJobPollInterval = null;
+let allPossibleFeatures = [];
+let selectedFeatureTags = [];
+let currentAutocompleteMatches = [];
+let addColumnFilterMatchMode = 'OR'; // 'OR' or 'AND'
+
+// Metadata columns that should always be visible and sticky
+const METADATA_COLUMNS = ['Year', 'Month', 'Day', 'Home', 'Away', 'game_id'];
+
+// Date filter state
+let dateFilters = {
+    year_min: null,
+    year_max: null,
+    month_min: null,
+    month_max: null,
+    day_min: null,
+    day_max: null,
+    date_start: null,
+    date_end: null
+};
+
+// Check for running jobs on page load
+async function checkForRunningJobs() {
+    try {
+        const response = await fetch('/api/jobs/running/add_features');
+        const data = await response.json();
+        
+        if (data.success && data.job) {
+            const job = data.job;
+            console.log('Found running job on page load:', job._id);
+            
+            // Show progress UI
+            const progressContainer = document.getElementById('jobProgressContainer');
+            const progressBar = document.getElementById('jobProgressBar');
+            const progressPercent = document.getElementById('jobProgressPercent');
+            const progressMessage = document.getElementById('jobProgressMessage');
+            const jobError = document.getElementById('jobError');
+            
+            progressContainer.classList.add('active');
+            progressBar.style.width = `${job.progress || 0}%`;
+            progressPercent.textContent = `${job.progress || 0}%`;
+            progressMessage.textContent = job.message || 'Processing...';
+            jobError.style.display = 'none';
+            
+            // Start polling
+            currentAddColumnJobId = job._id;
+            startAddColumnJobPolling(job._id);
+        }
+    } catch (error) {
+        console.error('Error checking for running jobs:', error);
+    }
+}
+
+// Load initial data
+document.addEventListener('DOMContentLoaded', function() {
+    loadColumns();
+    setupEventListeners();
+    setupScrollListener();
+    loadPossibleFeatures();
+    checkForRunningJobs();
+    
+    // Recalculate sticky column positions on window resize
+    let resizeTimeout;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            updateStickyColumnPositions();
+        }, 100);
+    });
+});
+
+// Debounce timer for column filter
+let filterDebounceTimer = null;
+
+function setupEventListeners() {
+    document.getElementById('columnFilter').addEventListener('input', function(e) {
+        columnFilter = e.target.value;
+        // Debounce filter to avoid multiple API calls while typing
+        clearTimeout(filterDebounceTimer);
+        filterDebounceTimer = setTimeout(() => {
+            filterColumns();
+        }, 300);  // Wait 300ms after last keystroke
+    });
+
+    document.getElementById('filterMatchMode').addEventListener('change', function(e) {
+        filterMatchMode = e.target.value;
+        filterColumns();
+    });
+    
+    document.getElementById('sortColumn').addEventListener('change', function(e) {
+        sortColumn = e.target.value;
+        if (sortColumn) {
+            reloadData();
+        }
+    });
+    
+    document.getElementById('sortDirection').addEventListener('change', function(e) {
+        sortDirection = e.target.value;
+        if (sortColumn) {
+            reloadData();
+        }
+    });
+    
+    // Date filter inputs - apply on Enter key or blur
+    ['dateStart', 'dateEnd', 'yearMin', 'yearMax', 'monthMin', 'monthMax', 'dayMin', 'dayMax'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('change', applyDateFilters);
+            element.addEventListener('blur', applyDateFilters);
+        }
+    });
+}
+
+function toggleDateFilters() {
+    const panel = document.getElementById('dateFiltersPanel');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+function applyDateFilters() {
+    // Collect date filter values
+    const dateStart = document.getElementById('dateStart').value;
+    const dateEnd = document.getElementById('dateEnd').value;
+    const yearMin = document.getElementById('yearMin').value;
+    const yearMax = document.getElementById('yearMax').value;
+    const monthMin = document.getElementById('monthMin').value;
+    const monthMax = document.getElementById('monthMax').value;
+    const dayMin = document.getElementById('dayMin').value;
+    const dayMax = document.getElementById('dayMax').value;
+    
+    // Update filter state
+    dateFilters.date_start = dateStart || null;
+    dateFilters.date_end = dateEnd || null;
+    dateFilters.year_min = yearMin || null;
+    dateFilters.year_max = yearMax || null;
+    dateFilters.month_min = monthMin || null;
+    dateFilters.month_max = monthMax || null;
+    dateFilters.day_min = dayMin || null;
+    dateFilters.day_max = dayMax || null;
+    
+    // Reload data with new filters
+    reloadData();
+}
+
+function clearDateFilters() {
+    document.getElementById('dateStart').value = '';
+    document.getElementById('dateEnd').value = '';
+    document.getElementById('yearMin').value = '';
+    document.getElementById('yearMax').value = '';
+    document.getElementById('monthMin').value = '';
+    document.getElementById('monthMax').value = '';
+    document.getElementById('dayMin').value = '';
+    document.getElementById('dayMax').value = '';
+    
+    // Reset filter state
+    dateFilters = {
+        year_min: null,
+        year_max: null,
+        month_min: null,
+        month_max: null,
+        day_min: null,
+        day_max: null,
+        date_start: null,
+        date_end: null
+    };
+    
+    // Reload data
+    reloadData();
+}
+
+function setupScrollListener() {
+    const tableWrapper = document.getElementById('tableWrapper');
+    tableWrapper.addEventListener('scroll', function() {
+        const scrollTop = tableWrapper.scrollTop;
+        const scrollHeight = tableWrapper.scrollHeight;
+        const clientHeight = tableWrapper.clientHeight;
+
+        // Load more rows when near bottom (within 100px)
+        if (scrollHeight - scrollTop - clientHeight < 100 && !isLoading && hasMoreData) {
+            loadMoreRows();
+        }
+
+        // Load more columns when near right edge (within 200px)
+        const scrollLeft = tableWrapper.scrollLeft;
+        const scrollWidth = tableWrapper.scrollWidth;
+        const clientWidth = tableWrapper.clientWidth;
+
+        if (scrollWidth - scrollLeft - clientWidth < 200 && !isLoadingColumns && hasMoreColumns) {
+            loadMoreColumns();
+        }
+    });
+}
+
+function loadColumns() {
+    fetch('/api/master-training/columns')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('stats').textContent = 'Error: ' + data.error;
+                return;
+            }
+            allColumns = data.columns;
+            totalRows = data.total_rows;
+
+            // Initialize filtered columns with metadata columns first
+            let metadataCols = METADATA_COLUMNS.filter(col => allColumns.includes(col));
+            let otherColumns = allColumns.filter(col => !METADATA_COLUMNS.includes(col));
+            filteredColumns = [...metadataCols, ...otherColumns];
+
+            // Initialize visible columns with initial subset for performance
+            initializeVisibleColumns();
+
+            populateColumnSelect();
+            renderHeader();
+            loadInitialRows();
+            updateStats();
+        })
+        .catch(error => {
+            console.error('Error loading columns:', error);
+            document.getElementById('stats').textContent = 'Error loading columns: ' + error.message;
+        });
+}
+
+function initializeVisibleColumns() {
+    // Start with metadata columns plus initial batch of other columns
+    const metadataCols = filteredColumns.filter(col => METADATA_COLUMNS.includes(col));
+    const otherCols = filteredColumns.filter(col => !METADATA_COLUMNS.includes(col));
+
+    // Take initial batch of non-metadata columns
+    const initialOtherCols = otherCols.slice(0, initialColumnCount - metadataCols.length);
+    visibleColumns = [...metadataCols, ...initialOtherCols];
+
+    hasMoreColumns = visibleColumns.length < filteredColumns.length;
+}
+
+function loadMoreColumns() {
+    if (isLoadingColumns || !hasMoreColumns) return;
+
+    isLoadingColumns = true;
+    document.getElementById('columnLoadingIndicator').classList.add('active');
+
+    // Find next batch of columns to add
+    const currentVisibleCount = visibleColumns.length;
+    const nextColumns = filteredColumns.slice(currentVisibleCount, currentVisibleCount + columnBatchSize);
+
+    if (nextColumns.length === 0) {
+        hasMoreColumns = false;
+        isLoadingColumns = false;
+        document.getElementById('columnLoadingIndicator').classList.remove('active');
+        return;
+    }
+
+    // Add new columns to visible set
+    visibleColumns = [...visibleColumns, ...nextColumns];
+    hasMoreColumns = visibleColumns.length < filteredColumns.length;
+
+    // Add new header cells
+    const headerRow = document.getElementById('headerRow');
+    nextColumns.forEach((col, index) => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        th.className = 'sortable';
+
+        // Add delete button (not for metadata columns)
+        if (!METADATA_COLUMNS.includes(col)) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'column-delete-btn';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.title = 'Delete column';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteColumn(col);
+            };
+            th.appendChild(deleteBtn);
+        }
+
+        if (sortColumn === col) {
+            th.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+        th.addEventListener('click', () => {
+            if (sortColumn === col) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                document.getElementById('sortDirection').value = sortDirection;
+            } else {
+                sortColumn = col;
+                document.getElementById('sortColumn').value = col;
+            }
+            reloadData();
+        });
+        headerRow.appendChild(th);
+    });
+
+    // Fetch data for new columns for existing rows
+    fetchColumnsForExistingRows(nextColumns);
+}
+
+function fetchColumnsForExistingRows(columns) {
+    const tbody = document.getElementById('tableBody');
+    const rows = tbody.querySelectorAll('tr');
+
+    if (rows.length === 0) {
+        isLoadingColumns = false;
+        document.getElementById('columnLoadingIndicator').classList.remove('active');
+        updateStats();
+        return;
+    }
+
+    // Include game_id in request to match rows safely
+    const columnsWithId = ['game_id', ...columns.filter(c => c !== 'game_id')];
+
+    // Build params for fetching column data
+    const params = new URLSearchParams({
+        offset: 0,
+        limit: currentOffset,  // Fetch all currently loaded rows
+        columns: columnsWithId.join(',')
+    });
+
+    if (sortColumn) {
+        params.append('sort_column', sortColumn);
+        params.append('sort_direction', sortDirection);
+    }
+
+    // Add date filters
+    if (dateFilters.year_min) params.append('year_min', dateFilters.year_min);
+    if (dateFilters.year_max) params.append('year_max', dateFilters.year_max);
+    if (dateFilters.month_min) params.append('month_min', dateFilters.month_min);
+    if (dateFilters.month_max) params.append('month_max', dateFilters.month_max);
+    if (dateFilters.day_min) params.append('day_min', dateFilters.day_min);
+    if (dateFilters.day_max) params.append('day_max', dateFilters.day_max);
+    if (dateFilters.date_start) params.append('date_start', dateFilters.date_start);
+    if (dateFilters.date_end) params.append('date_end', dateFilters.date_end);
+
+    fetch(`/api/master-training/rows?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                console.error('Error loading column data:', data.error);
+                isLoadingColumns = false;
+                return;
+            }
+
+            // Build a map from game_id to row data for safe matching
+            const rowDataByGameId = {};
+            data.rows.forEach(row => {
+                rowDataByGameId[row.game_id] = row;
+            });
+
+            // Find game_id column index in the current visible columns
+            const gameIdColIndex = visibleColumns.indexOf('game_id');
+
+            // Append new cells to each existing row, matching by game_id
+            rows.forEach((tr) => {
+                const cells = tr.querySelectorAll('td');
+                if (gameIdColIndex >= 0 && cells[gameIdColIndex]) {
+                    // game_id might be wrapped in a link, so get text from link or cell
+                    const gameIdCell = cells[gameIdColIndex];
+                    const link = gameIdCell.querySelector('a');
+                    const gameId = link ? link.textContent : gameIdCell.textContent;
+                    const rowData = rowDataByGameId[gameId];
+                    if (rowData) {
+                        columns.forEach(col => {
+                            const td = document.createElement('td');
+                            const value = rowData[col];
+                            td.textContent = value !== null && value !== undefined ? value : '';
+                            tr.appendChild(td);
+                        });
+                    }
+                }
+            });
+
+            isLoadingColumns = false;
+            document.getElementById('columnLoadingIndicator').classList.remove('active');
+            updateStats();
+        })
+        .catch(error => {
+            console.error('Error loading column data:', error);
+            isLoadingColumns = false;
+            document.getElementById('columnLoadingIndicator').classList.remove('active');
+        });
+}
+
+function filterColumns() {
+    // Always include metadata columns first
+    let metadataCols = METADATA_COLUMNS.filter(col => allColumns.includes(col));
+
+    if (!columnFilter || !columnFilter.trim()) {
+        // No filter: include all columns, but metadata first
+        let otherColumns = allColumns.filter(col => !METADATA_COLUMNS.includes(col));
+        filteredColumns = [...metadataCols, ...otherColumns];
+    } else {
+        // Parse comma-separated substrings
+        const substrings = columnFilter.split(',')
+            .map(s => s.trim().toLowerCase())
+            .filter(s => s.length > 0);
+
+        if (substrings.length === 0) {
+            // Empty after parsing: include all columns
+            let otherColumns = allColumns.filter(col => !METADATA_COLUMNS.includes(col));
+            filteredColumns = [...metadataCols, ...otherColumns];
+        } else {
+            // Apply filter with AND/OR logic but always include metadata columns
+            let otherColumns = allColumns.filter(col => {
+                if (METADATA_COLUMNS.includes(col)) {
+                    return false;  // Metadata columns handled separately
+                }
+
+                const colLower = col.toLowerCase();
+
+                if (filterMatchMode === 'AND') {
+                    // AND mode: column must contain ALL substrings
+                    return substrings.every(substring => colLower.includes(substring));
+                } else {
+                    // OR mode: column must contain ANY substring
+                    return substrings.some(substring => colLower.includes(substring));
+                }
+            });
+            filteredColumns = [...metadataCols, ...otherColumns];
+        }
+    }
+
+    // Reset visible columns when filter changes
+    initializeVisibleColumns();
+    renderHeader();
+    reloadData();
+}
+
+function populateColumnSelect() {
+    const select = document.getElementById('sortColumn');
+    select.innerHTML = '<option value="">Sort by...</option>';
+    filteredColumns.forEach(col => {
+        const option = document.createElement('option');
+        option.value = col;
+        option.textContent = col;
+        select.appendChild(option);
+    });
+}
+
+function renderHeader() {
+    const headerRow = document.getElementById('headerRow');
+    headerRow.innerHTML = '';
+
+    visibleColumns.forEach((col, index) => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        th.className = 'sortable';
+
+        // Add metadata-column class for sticky positioning
+        if (METADATA_COLUMNS.includes(col)) {
+            th.classList.add('metadata-column');
+            th.dataset.metadataIndex = METADATA_COLUMNS.indexOf(col).toString();
+        }
+
+        // Add delete button (not for metadata columns)
+        if (!METADATA_COLUMNS.includes(col)) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'column-delete-btn';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.title = 'Delete column';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation(); // Prevent sorting when clicking delete
+                deleteColumn(col);
+            };
+            th.appendChild(deleteBtn);
+        }
+
+        if (sortColumn === col) {
+            th.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+        th.addEventListener('click', () => {
+            if (sortColumn === col) {
+                // Toggle direction
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                document.getElementById('sortDirection').value = sortDirection;
+            } else {
+                sortColumn = col;
+                document.getElementById('sortColumn').value = col;
+            }
+            reloadData();
+        });
+        headerRow.appendChild(th);
+    });
+
+    // After rendering, calculate actual widths and update sticky positions
+    setTimeout(() => {
+        updateStickyColumnPositions();
+    }, 50);
+}
+
+function updateStickyColumnPositions() {
+    const headerRow = document.getElementById('headerRow');
+    const allHeaderCells = Array.from(headerRow.querySelectorAll('th'));
+    const metadataHeaderCells = allHeaderCells.filter(th => th.classList.contains('metadata-column'));
+    
+    let cumulativeLeft = 0;
+    
+    metadataHeaderCells.forEach((th, index) => {
+        // Get actual width of the header cell
+        const width = th.offsetWidth || 80; // Fallback to 80px if offsetWidth not available
+        
+        th.style.left = cumulativeLeft + 'px';
+        
+        // Update all corresponding body cells (same column index in each row)
+        const columnIndex = allHeaderCells.indexOf(th);
+        const bodyRows = document.querySelectorAll('#tableBody tr');
+        bodyRows.forEach(tr => {
+            const cells = Array.from(tr.querySelectorAll('td'));
+            if (cells[columnIndex] && cells[columnIndex].classList.contains('metadata-column')) {
+                cells[columnIndex].style.left = cumulativeLeft + 'px';
+            }
+        });
+        
+        cumulativeLeft += width;
+    });
+}
+
+function loadInitialRows() {
+    currentOffset = 0;
+    hasMoreData = true;
+    isInitialLoad = true;  // Mark as initial load
+    document.getElementById('tableBody').innerHTML = '';
+    loadMoreRows();
+}
+
+function reloadData() {
+    currentOffset = 0;
+    hasMoreData = true;
+    isInitialLoad = true;  // Reset to initial load when reloading
+    isLoadingColumns = false;  // Reset column loading state
+    document.getElementById('tableBody').innerHTML = '';
+    loadMoreRows();
+}
+
+function loadMoreRows() {
+    if (isLoading || !hasMoreData) return;
+
+    isLoading = true;
+    document.getElementById('loadingIndicator').style.display = 'block';
+
+    // Use initialLoadSize for first load, pageSize for subsequent loads
+    const limit = isInitialLoad ? initialLoadSize : pageSize;
+
+    const params = new URLSearchParams({
+        offset: currentOffset,
+        limit: limit,
+        columns: visibleColumns.join(',')  // Only fetch visible columns for performance
+    });
+
+    console.log(`[loadMoreRows] Requesting ${visibleColumns.length} columns, offset=${currentOffset}, limit=${limit}`);
+    
+    if (sortColumn) {
+        params.append('sort_column', sortColumn);
+        params.append('sort_direction', sortDirection);
+    }
+    
+    // Add date filters
+    if (dateFilters.year_min) params.append('year_min', dateFilters.year_min);
+    if (dateFilters.year_max) params.append('year_max', dateFilters.year_max);
+    if (dateFilters.month_min) params.append('month_min', dateFilters.month_min);
+    if (dateFilters.month_max) params.append('month_max', dateFilters.month_max);
+    if (dateFilters.day_min) params.append('day_min', dateFilters.day_min);
+    if (dateFilters.day_max) params.append('day_max', dateFilters.day_max);
+    if (dateFilters.date_start) params.append('date_start', dateFilters.date_start);
+    if (dateFilters.date_end) params.append('date_end', dateFilters.date_end);
+    
+    fetch(`/api/master-training/rows?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            isLoading = false;
+            document.getElementById('loadingIndicator').style.display = 'none';
+            
+            if (data.error) {
+                console.error('Error loading rows:', data.error);
+                return;
+            }
+            
+            const tbody = document.getElementById('tableBody');
+            data.rows.forEach(row => {
+                const tr = document.createElement('tr');
+                visibleColumns.forEach((col, index) => {
+                    const td = document.createElement('td');
+
+                    // Add metadata-column class for sticky positioning
+                    if (METADATA_COLUMNS.includes(col)) {
+                        td.classList.add('metadata-column');
+                        td.dataset.metadataIndex = METADATA_COLUMNS.indexOf(col).toString();
+                    }
+
+                    const value = row[col];
+
+                    // Make game_id a clickable link
+                    if (col === 'game_id' && value !== null && value !== undefined && value !== '') {
+                        const link = document.createElement('a');
+                        link.href = `/${window.LEAGUE_ID}/game/${value}`;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        link.textContent = value;
+                        td.appendChild(link);
+                    } else {
+                        td.textContent = value !== null && value !== undefined ? value : '';
+                    }
+
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            currentOffset += data.rows.length;
+            hasMoreData = data.has_more;
+
+            // Mark that initial load is complete
+            if (isInitialLoad) {
+                isInitialLoad = false;
+            }
+
+            // Update sticky column positions after adding rows
+            // Use setTimeout to ensure DOM is fully rendered
+            setTimeout(() => {
+                updateStickyColumnPositions();
+            }, 50);
+
+            if (!hasMoreData && data.rows.length === 0 && currentOffset === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + visibleColumns.length + '" class="empty-state">No data found</td></tr>';
+            }
+            
+            // Update total rows count from filtered data
+            if (data.total_count !== undefined) {
+                totalRows = data.total_count;
+            }
+            
+            updateStats();
+        })
+        .catch(error => {
+            isLoading = false;
+            document.getElementById('loadingIndicator').style.display = 'none';
+            console.error('Error loading rows:', error);
+        });
+}
+
+function updateStats() {
+    const loadedCount = document.getElementById('tableBody').querySelectorAll('tr').length;
+    let text = `Total rows: ${totalRows}`;
+
+    // Check if any date filters are active
+    const hasDateFilters = Object.values(dateFilters).some(v => v !== null);
+    if (hasDateFilters) {
+        text += ` (filtered)`;
+    }
+
+    text += ` | Showing: ${loadedCount} rows`;
+
+    // Show column counts (visible / filtered / total)
+    text += ` | Columns: ${visibleColumns.length}`;
+    if (visibleColumns.length < filteredColumns.length) {
+        text += ` of ${filteredColumns.length}`;
+    }
+    if (filteredColumns.length < allColumns.length) {
+        text += ` (${allColumns.length} total)`;
+    }
+
+    if (sortColumn) {
+        text += ` | Sorted by: ${sortColumn} (${sortDirection})`;
+    }
+    if (hasDateFilters) {
+        text += ` | Date filters active`;
+    }
+
+    const statsEl = document.getElementById('stats');
+    statsEl.innerHTML = text;
+
+    // Add scroll hint if more columns available
+    if (hasMoreColumns && visibleColumns.length < filteredColumns.length) {
+        const hint = document.createElement('span');
+        hint.className = 'scroll-hint';
+        hint.textContent = 'Scroll right for more columns';
+        statsEl.appendChild(hint);
+    }
+
+    // Update column count under filter input
+    const columnCountEl = document.getElementById('columnCount');
+    if (columnCountEl) {
+        if (filteredColumns.length !== allColumns.length) {
+            columnCountEl.textContent = `Showing ${visibleColumns.length} of ${filteredColumns.length} filtered columns (${allColumns.length} total)`;
+        } else {
+            columnCountEl.textContent = `Showing ${visibleColumns.length} of ${allColumns.length} columns`;
+        }
+    }
+}
+
+function resetFilters() {
+    document.getElementById('columnFilter').value = '';
+    document.getElementById('filterMatchMode').value = 'OR';
+    document.getElementById('sortColumn').value = '';
+    document.getElementById('sortDirection').value = 'asc';
+    columnFilter = '';
+    filterMatchMode = 'OR';
+    sortColumn = '';
+    sortDirection = 'asc';
+    clearDateFilters();
+    filterColumns();
+    // reloadData is called by clearDateFilters, but we need to reload columns count too
+    loadColumns();
+}
+
+// Feature regeneration functions
+function getSelectedFeatureSubstrings() {
+    const filterValue = columnFilter.trim();
+    
+    // If filter is empty, return empty array (means regenerate all features)
+    if (!filterValue) {
+        return [];
+    }
+    
+    // Parse comma-separated substrings
+    const substrings = filterValue.split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+    
+    return substrings;
+}
+
+function showDependencyConfirmation(dependencyData) {
+    const modal = document.createElement('div');
+    modal.className = 'dependency-confirmation-modal';
+    modal.id = 'dependencyConfirmationModal';
+    
+    const content = document.createElement('div');
+    content.className = 'dependency-confirmation-content';
+    
+    let html = `
+        <h2>Confirm Feature Regeneration</h2>
+        <p><strong>Requested Features:</strong> ${dependencyData.requested.length}</p>
+    `;
+    
+    if (dependencyData.has_extra_dependencies) {
+        html += `
+            <p class="dependency-warning">
+                ⚠️ Additional features will be regenerated due to dependencies: ${dependencyData.dependencies.length}
+            </p>
+        `;
+    } else {
+        html += `
+            <p class="dependency-info">
+                ✓ No additional features required (all dependencies are already included)
+            </p>
+        `;
+    }
+    
+    html += `
+        <div style="margin: 20px 0;">
+            <h3>All Features to Regenerate (${dependencyData.all.length}):</h3>
+            <div class="dependency-list">
+    `;
+    
+    // Group features by category
+    dependencyData.all.forEach(feature => {
+        const isRequested = dependencyData.requested.includes(feature);
+        const isDependency = dependencyData.dependencies.includes(feature);
+        const className = isRequested ? 'feature-requested' : 'feature-dependency';
+        const label = isRequested ? '' : ' [DEPENDENCY]';
+        html += `<div class="dependency-list-item ${className}">${feature}${label}</div>`;
+    });
+    
+    html += `
+            </div>
+        </div>
+    `;
+    
+    // Show dependency map if available
+    if (dependencyData.dependency_map && Object.keys(dependencyData.dependency_map).length > 0) {
+        html += `
+            <div style="margin: 20px 0;">
+                <h3>Dependency Details:</h3>
+                <div class="dependency-details">
+        `;
+        
+        for (const [feature, deps] of Object.entries(dependencyData.dependency_map)) {
+            if (deps.length > 0) {
+                html += `<div class="dependency-detail-item"><strong>${feature}:</strong><br>`;
+                deps.forEach(dep => {
+                    html += `&nbsp;&nbsp;→ ${dep}<br>`;
+                });
+                html += `</div>`;
+            }
+        }
+        
+        html += `</div></div>`;
+    }
+    
+    html += `
+        <div class="dependency-buttons">
+            <button class="dependency-btn dependency-btn-cancel" id="cancelDependencyBtn">
+                Cancel
+            </button>
+            <button class="dependency-btn dependency-btn-confirm" id="confirmDependencyBtn">
+                Confirm & Regenerate
+            </button>
+        </div>
+    `;
+    
+    content.innerHTML = html;
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+    
+    // Store feature_substrings in modal for confirmation
+    modal.dataset.featureSubstrings = JSON.stringify(dependencyData.feature_substrings || []);
+    
+    // Event handlers
+    document.getElementById('cancelDependencyBtn').onclick = () => {
+        document.body.removeChild(modal);
+    };
+    
+    document.getElementById('confirmDependencyBtn').onclick = () => {
+        document.body.removeChild(modal);
+        const substrings = JSON.parse(modal.dataset.featureSubstrings);
+        startFeatureRegeneration(substrings);
+    };
+}
+
+async function regenerateSelectedFeatures() {
+    const filterValue = columnFilter.trim();
+    const featureSubstrings = getSelectedFeatureSubstrings();
+    
+    // Update UI
+    const infoEl = document.getElementById('featureSelectionInfo');
+    
+    // Disable button
+    const btn = document.getElementById('regenerateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Resolving Dependencies...';
+    
+    try {
+        // If filter is empty, we need to get all features from the CSV
+        let substringsToSend = featureSubstrings;
+        if (featureSubstrings.length === 0) {
+            // Empty filter = regenerate all features
+            // Send a special marker or get all feature columns
+            // We'll send empty array and handle it on backend, OR send a wildcard
+            // Actually, let's send empty array and backend will regenerate all
+            substringsToSend = [];
+            infoEl.textContent = 'Resolving dependencies for all features...';
+        } else {
+            infoEl.textContent = `Resolving dependencies for filtered features (${filterValue}, ${filterMatchMode} mode)...`;
+        }
+        
+        const response = await fetch('/api/master-training/resolve-dependencies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                feature_substrings: substringsToSend,
+                match_mode: filterMatchMode
+            })
+        });
+        
+        const data = await response.json();
+        
+        // Re-enable button
+        btn.disabled = false;
+        btn.textContent = 'Regenerate Features';
+        
+        if (!data.success) {
+            alert(`Error: ${data.error}`);
+            infoEl.textContent = `Error: ${data.error}`;
+            return;
+        }
+        
+        // Store feature_substrings for confirmation
+        data.feature_substrings = substringsToSend;
+        
+        // Update info
+        if (data.has_extra_dependencies) {
+            infoEl.innerHTML = `
+                <strong>Ready to regenerate ${data.all.length} features:</strong><br>
+                - Requested: ${data.requested.length}<br>
+                - Dependencies: ${data.dependencies.length}
+            `;
+        } else {
+            infoEl.innerHTML = `
+                <strong>Ready to regenerate ${data.all.length} features</strong> (no additional dependencies)
+            `;
+        }
+        
+        // Show confirmation modal
+        showDependencyConfirmation(data);
+    } catch (error) {
+        btn.disabled = false;
+        btn.textContent = 'Regenerate Features';
+        alert(`Error: ${error.message}`);
+        infoEl.textContent = `Error: ${error.message}`;
+    }
+}
+
+async function startFeatureRegeneration(featureSubstrings) {
+    // Show loading state
+    const progressContainer = document.getElementById('jobProgressContainer');
+    const progressBar = document.getElementById('jobProgressBar');
+    const progressPercent = document.getElementById('jobProgressPercent');
+    const progressMessage = document.getElementById('jobProgressMessage');
+    const jobError = document.getElementById('jobError');
+    
+    progressContainer.classList.add('active');
+    progressBar.style.width = '0%';
+    progressPercent.textContent = '0%';
+    progressMessage.textContent = 'Starting feature regeneration...';
+    jobError.style.display = 'none';
+    
+    // Disable button
+    const btn = document.getElementById('regenerateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Regenerating...';
+    
+    try {
+        const response = await fetch('/api/master-training/regenerate-features', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                feature_substrings: featureSubstrings,
+                match_mode: filterMatchMode,
+                confirmed: true
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert(`Error: ${data.error}`);
+            progressContainer.classList.remove('active');
+            btn.disabled = false;
+            btn.textContent = 'Regenerate Features';
+            return;
+        }
+        
+        // Start polling job progress
+        currentRegenerationJobId = data.job_id;
+        startJobPolling(data.job_id);
+        
+        // Update info
+        const infoEl = document.getElementById('featureSelectionInfo');
+        infoEl.textContent = `Regeneration started. Job ID: ${data.job_id.substring(0, 8)}...`;
+        
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+        progressContainer.classList.remove('active');
+        btn.disabled = false;
+        btn.textContent = 'Regenerate Features';
+    }
+}
+
+function startJobPolling(jobId) {
+    // Clear any existing interval
+    if (jobPollInterval) {
+        clearInterval(jobPollInterval);
+    }
+    
+    // Poll immediately, then every 2 seconds
+    pollJobStatus(jobId);
+    jobPollInterval = setInterval(() => {
+        pollJobStatus(jobId);
+    }, 2000);
+}
+
+async function pollJobStatus(jobId) {
+    try {
+        const response = await fetch(`/api/jobs/${jobId}`);
+        
+        if (!response.ok) {
+            console.error(`Failed to fetch job status: ${response.status}`);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success || !data.job) {
+            console.error('Invalid job status response:', data);
+            return;
+        }
+        
+        const job = data.job;
+        const progressContainer = document.getElementById('jobProgressContainer');
+        const progressBar = document.getElementById('jobProgressBar');
+        const progressPercent = document.getElementById('jobProgressPercent');
+        const progressMessage = document.getElementById('jobProgressMessage');
+        const jobError = document.getElementById('jobError');
+        
+        // Update progress bar
+        const progress = job.progress || 0;
+        progressBar.style.width = `${progress}%`;
+        progressBar.textContent = `${progress}%`;
+        progressPercent.textContent = `${progress}%`;
+        
+        // Update message
+        if (job.message) {
+            progressMessage.textContent = job.message;
+        }
+        
+        // Handle job completion
+        if (job.status === 'completed') {
+            console.log('Job completed successfully');
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+            currentRegenerationJobId = null;
+            
+            // Re-enable button
+            const btn = document.getElementById('regenerateBtn');
+            btn.disabled = false;
+            btn.textContent = 'Regenerate Features';
+            
+            // Update info
+            const infoEl = document.getElementById('featureSelectionInfo');
+            infoEl.textContent = 'Regeneration completed successfully! You may need to refresh the page to see updated values.';
+            
+            // Hide progress bar after a delay
+            setTimeout(() => {
+                progressContainer.classList.remove('active');
+            }, 3000);
+            
+            // Optionally reload columns to show updated features
+            // loadColumns();
+            
+        } else if (job.status === 'failed') {
+            console.error('Job failed:', job.error);
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+            currentRegenerationJobId = null;
+            
+            // Re-enable button
+            const btn = document.getElementById('regenerateBtn');
+            btn.disabled = false;
+            btn.textContent = 'Regenerate Features';
+            
+            // Show error message
+            jobError.textContent = job.error || 'Feature regeneration failed with unknown error';
+            jobError.style.display = 'block';
+            
+            // Update info
+            const infoEl = document.getElementById('featureSelectionInfo');
+            infoEl.textContent = `Regeneration failed: ${job.error || 'Unknown error'}`;
+        }
+        // If status is 'running', continue polling
+    } catch (error) {
+        console.error('Error polling job status:', error);
+    }
+}
+
+// Delete column functionality
+async function deleteColumn(columnName) {
+    if (!confirm(`Are you sure you want to delete column "${columnName}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/master-training/delete-column', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({column_name: columnName})
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert(`Error deleting column: ${data.error}`);
+            return;
+        }
+        
+        // Reload columns and data
+        loadColumns();
+        alert(`Column "${columnName}" deleted successfully`);
+    } catch (error) {
+        alert(`Error deleting column: ${error.message}`);
+    }
+}
+
+// Add column functionality
+async function loadPossibleFeatures() {
+    try {
+        const response = await fetch('/api/master-training/possible-features');
+        const data = await response.json();
+        if (data.success) {
+            allPossibleFeatures = data.features;
+        }
+    } catch (error) {
+        console.error('Error loading possible features:', error);
+    }
+}
+
+function openAddColumnModal() {
+    const modal = document.getElementById('addColumnModal');
+    const input = document.getElementById('featureNameInput');
+    const tagsContainer = document.getElementById('featureTags');
+    const errorDiv = document.getElementById('addColumnError');
+    const confirmBtn = document.getElementById('confirmAddColumnsBtn');
+    
+    modal.style.display = 'flex';
+    input.value = '';
+    tagsContainer.innerHTML = '';
+    selectedFeatureTags = [];
+    errorDiv.style.display = 'none';
+    confirmBtn.disabled = true;
+    
+    // Focus input
+    setTimeout(() => input.focus(), 100);
+    
+    // Setup input event listeners
+    setupAddColumnInputListeners();
+}
+
+function closeAddColumnModal() {
+    const modal = document.getElementById('addColumnModal');
+    const suggestions = document.getElementById('autocompleteSuggestions');
+    modal.style.display = 'none';
+    suggestions.classList.remove('show');
+}
+
+let addColumnInputHandlersSetup = false;
+
+function setupAddColumnInputListeners() {
+    if (addColumnInputHandlersSetup) return;
+    
+    const input = document.getElementById('featureNameInput');
+    const suggestions = document.getElementById('autocompleteSuggestions');
+    const matchModeSelect = document.getElementById('addColumnFilterMatchMode');
+    
+    // Setup listeners
+    input.addEventListener('input', handleFeatureInput);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const activeSuggestion = suggestions.querySelector('.suggestion-item.highlighted');
+            if (activeSuggestion) {
+                activeSuggestion.click();
+            } else {
+                // Try to add current input as tag
+                addFeatureTag(input.value.trim());
+                input.value = '';
+            }
+        } else if (e.key === 'Escape') {
+            suggestions.classList.remove('show');
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            highlightNextSuggestion();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            highlightPrevSuggestion();
+        }
+    });
+    
+    input.addEventListener('blur', () => {
+        // Delay hiding suggestions to allow clicks
+        setTimeout(() => {
+            suggestions.classList.remove('show');
+        }, 200);
+    });
+
+    if (matchModeSelect) {
+        matchModeSelect.addEventListener('change', (e) => {
+            addColumnFilterMatchMode = e.target.value === 'AND' ? 'AND' : 'OR';
+            // Re-run suggestions for current input
+            handleFeatureInput({ target: input });
+        });
+    }
+    
+    // Handle paste events (comma or newline-separated lists)
+    input.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const pastedText = e.clipboardData.getData('text');
+        
+        // Check if pasted text contains commas or newlines
+        if (pastedText.includes(',') || pastedText.includes('\n')) {
+            // Split by both commas and newlines
+            const features = pastedText.split(/[,\n]/)
+                .map(s => s.trim())
+                .filter(s => s.length > 0);
+            
+            let validCount = 0;
+            features.forEach(feature => {
+                if (allPossibleFeatures.includes(feature)) {
+                    addFeatureTag(feature);
+                    validCount++;
+                }
+            });
+            
+            // Clear input after processing
+            input.value = '';
+        } else {
+            // If no separators, just paste normally
+            const currentValue = input.value;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            input.value = currentValue.substring(0, start) + pastedText + currentValue.substring(end);
+            input.setSelectionRange(start + pastedText.length, start + pastedText.length);
+        }
+    });
+    
+    addColumnInputHandlersSetup = true;
+}
+
+function filterFeaturesBySubstrings(features, filterValue, matchMode) {
+    const v = (filterValue || '').trim();
+    if (!v) return [];
+    const substrings = v.split(',')
+        .map(s => s.trim().toLowerCase())
+        .filter(s => s.length > 0);
+    if (substrings.length === 0) return [];
+    return features.filter(f => {
+        const lower = String(f).toLowerCase();
+        if (matchMode === 'AND') {
+            return substrings.every(sub => lower.includes(sub));
+        }
+        return substrings.some(sub => lower.includes(sub));
+    });
+}
+
+function handleFeatureInput(e) {
+    const input = e.target;
+    const value = input.value;
+    const suggestions = document.getElementById('autocompleteSuggestions');
+    
+    // Check for comma or newline-separated input (for pasting)
+    if (value.includes(',') || value.includes('\n')) {
+        // Split by both commas and newlines
+        const features = value.split(/[,\n]/)
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+        
+        // If we have multiple features, process them as tags
+        if (features.length > 1) {
+            // Only auto-add when ALL tokens are exact valid feature names.
+            // This avoids breaking comma-separated substring filtering (AND/OR) behavior.
+            const allExact = features.every(f => allPossibleFeatures.includes(f));
+            if (allExact) {
+                features.forEach(feature => {
+                    if (!selectedFeatureTags.includes(feature)) {
+                        addFeatureTag(feature);
+                    }
+                });
+                input.value = '';
+                currentAutocompleteMatches = [];
+                suggestions.classList.remove('show');
+                return;
+            }
+        }
+    }
+    
+    // Normal autocomplete behavior for single feature input
+    const trimmedValue = value.trim();
+    if (trimmedValue.length === 0) {
+        currentAutocompleteMatches = [];
+        suggestions.classList.remove('show');
+        return;
+    }
+    
+    // Filter features by input using the same AND/OR substring logic as main column filter
+    const matches = filterFeaturesBySubstrings(allPossibleFeatures, trimmedValue, addColumnFilterMatchMode);
+    currentAutocompleteMatches = matches;
+    
+    if (matches.length === 0) {
+        suggestions.classList.remove('show');
+        return;
+    }
+    
+    // Render suggestions
+    suggestions.innerHTML = '';
+    
+    // Add "Add All" action (adds all matching suggestions not already selected)
+    const addableCount = matches.filter(f => !selectedFeatureTags.includes(f)).length;
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'suggestion-actions';
+    const addAllBtn = document.createElement('button');
+    addAllBtn.type = 'button';
+    addAllBtn.textContent = addableCount > 0 ? `Add All (${addableCount})` : `Add All (0)`;
+    addAllBtn.disabled = addableCount === 0;
+    addAllBtn.onclick = () => {
+        addFeatureTagsBulk(currentAutocompleteMatches);
+        input.value = '';
+        currentAutocompleteMatches = [];
+        suggestions.classList.remove('show');
+    };
+    actionsRow.appendChild(addAllBtn);
+    suggestions.appendChild(actionsRow);
+    
+    // Show more items now that the dropdown is taller/scrollable
+    matches.slice(0, 50).forEach(feature => {
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.textContent = feature;
+        item.onclick = () => {
+            addFeatureTag(feature);
+            input.value = '';
+            currentAutocompleteMatches = [];
+            suggestions.classList.remove('show');
+        };
+        suggestions.appendChild(item);
+    });
+    
+    suggestions.classList.add('show');
+}
+
+function highlightNextSuggestion() {
+    const suggestions = document.getElementById('autocompleteSuggestions');
+    const items = suggestions.querySelectorAll('.suggestion-item');
+    const current = suggestions.querySelector('.suggestion-item.highlighted');
+    
+    items.forEach(item => item.classList.remove('highlighted'));
+    
+    if (!current) {
+        if (items.length > 0) items[0].classList.add('highlighted');
+    } else {
+        const next = current.nextElementSibling;
+        if (next) {
+            next.classList.add('highlighted');
+        } else {
+            items[0].classList.add('highlighted');
+        }
+    }
+}
+
+function highlightPrevSuggestion() {
+    const suggestions = document.getElementById('autocompleteSuggestions');
+    const items = suggestions.querySelectorAll('.suggestion-item');
+    const current = suggestions.querySelector('.suggestion-item.highlighted');
+    
+    items.forEach(item => item.classList.remove('highlighted'));
+    
+    if (!current) {
+        if (items.length > 0) items[items.length - 1].classList.add('highlighted');
+    } else {
+        const prev = current.previousElementSibling;
+        if (prev) {
+            prev.classList.add('highlighted');
+        } else {
+            items[items.length - 1].classList.add('highlighted');
+        }
+    }
+}
+
+function addFeatureTag(featureName) {
+    // Validate feature name
+    if (!allPossibleFeatures.includes(featureName)) {
+        showAddColumnError(`Invalid feature: ${featureName}. Feature must be in the list of possible features.`);
+        return;
+    }
+    
+    // Check if already added
+    if (selectedFeatureTags.includes(featureName)) {
+        return;
+    }
+    
+    selectedFeatureTags.push(featureName);
+    renderFeatureTags();
+    updateAddColumnConfirmButton();
+}
+
+function addFeatureTagsBulk(featureNames) {
+    if (!Array.isArray(featureNames) || featureNames.length === 0) return;
+    
+    // Only add suggestions that are valid + not already selected
+    const existing = new Set(selectedFeatureTags);
+    const toAdd = [];
+    for (const name of featureNames) {
+        if (!allPossibleFeatures.includes(name)) continue;
+        if (existing.has(name)) continue;
+        existing.add(name);
+        toAdd.push(name);
+    }
+    
+    if (toAdd.length === 0) return;
+    
+    selectedFeatureTags = selectedFeatureTags.concat(toAdd);
+    renderFeatureTags();
+    updateAddColumnConfirmButton();
+}
+
+function removeFeatureTag(featureName) {
+    selectedFeatureTags = selectedFeatureTags.filter(f => f !== featureName);
+    renderFeatureTags();
+    updateAddColumnConfirmButton();
+}
+
+function renderFeatureTags() {
+    const container = document.getElementById('featureTags');
+    container.innerHTML = '';
+    
+    selectedFeatureTags.forEach(feature => {
+        const tag = document.createElement('div');
+        tag.className = 'feature-tag';
+        const span = document.createElement('span');
+        span.textContent = feature;
+        tag.appendChild(span);
+        
+        const removeBtn = document.createElement('span');
+        removeBtn.className = 'tag-remove';
+        removeBtn.textContent = '×';
+        removeBtn.onclick = () => removeFeatureTag(feature);
+        tag.appendChild(removeBtn);
+        
+        container.appendChild(tag);
+    });
+}
+
+function updateAddColumnConfirmButton() {
+    const btn = document.getElementById('confirmAddColumnsBtn');
+    btn.disabled = selectedFeatureTags.length === 0;
+}
+
+function showAddColumnError(message) {
+    const errorDiv = document.getElementById('addColumnError');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+async function confirmAddColumns() {
+    if (selectedFeatureTags.length === 0) {
+        showAddColumnError('Please add at least one feature');
+        return;
+    }
+    
+    const errorDiv = document.getElementById('addColumnError');
+    errorDiv.style.display = 'none';
+    
+    const confirmBtn = document.getElementById('confirmAddColumnsBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Adding...';
+    
+    try {
+        const response = await fetch('/api/master-training/add-columns', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                feature_names: selectedFeatureTags,
+                confirmed: true
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            showAddColumnError(data.error || 'Failed to add columns');
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Add Columns';
+            return;
+        }
+        
+        // Close modal
+        closeAddColumnModal();
+        
+        // Show progress UI
+        const progressContainer = document.getElementById('jobProgressContainer');
+        const progressBar = document.getElementById('jobProgressBar');
+        const progressPercent = document.getElementById('jobProgressPercent');
+        const progressMessage = document.getElementById('jobProgressMessage');
+        const jobError = document.getElementById('jobError');
+        
+        progressContainer.classList.add('active');
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressMessage.textContent = 'Starting column addition...';
+        jobError.style.display = 'none';
+        
+        // Start polling
+        currentAddColumnJobId = data.job_id;
+        startAddColumnJobPolling(data.job_id);
+        
+    } catch (error) {
+        showAddColumnError(`Error: ${error.message}`);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Add Columns';
+    }
+}
+
+function startAddColumnJobPolling(jobId) {
+    // Clear any existing interval
+    if (addColumnJobPollInterval) {
+        clearInterval(addColumnJobPollInterval);
+    }
+    
+    // Poll immediately, then every 2 seconds
+    pollAddColumnJobStatus(jobId);
+    addColumnJobPollInterval = setInterval(() => {
+        pollAddColumnJobStatus(jobId);
+    }, 2000);
+}
+
+async function pollAddColumnJobStatus(jobId) {
+    try {
+        const response = await fetch(`/api/jobs/${jobId}`);
+        
+        if (!response.ok) {
+            console.error(`Failed to fetch job status: ${response.status}`);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success || !data.job) {
+            console.error('Invalid job status response:', data);
+            return;
+        }
+        
+        const job = data.job;
+        const progressContainer = document.getElementById('jobProgressContainer');
+        const progressBar = document.getElementById('jobProgressBar');
+        const progressPercent = document.getElementById('jobProgressPercent');
+        const progressMessage = document.getElementById('jobProgressMessage');
+        const jobError = document.getElementById('jobError');
+        
+        // Update progress bar
+        const progress = job.progress || 0;
+        progressBar.style.width = `${progress}%`;
+        progressBar.textContent = `${progress}%`;
+        progressPercent.textContent = `${progress}%`;
+        
+        // Update message
+        if (job.message) {
+            progressMessage.textContent = job.message;
+        }
+        
+        // Handle job completion
+        if (job.status === 'completed') {
+            console.log('Add column job completed successfully');
+            clearInterval(addColumnJobPollInterval);
+            addColumnJobPollInterval = null;
+            currentAddColumnJobId = null;
+            
+            // Reload columns to show new columns
+            loadColumns();
+            
+            // Hide progress bar after a delay
+            setTimeout(() => {
+                progressContainer.classList.remove('active');
+            }, 2000);
+            
+        } else if (job.status === 'failed') {
+            console.error('Add column job failed:', job.error);
+            clearInterval(addColumnJobPollInterval);
+            addColumnJobPollInterval = null;
+            currentAddColumnJobId = null;
+            
+            // Show error message
+            jobError.textContent = job.error || 'Column addition failed with unknown error';
+            jobError.style.display = 'block';
+        }
+        // If status is 'running', continue polling
+    } catch (error) {
+        console.error('Error polling add column job status:', error);
+    }
+}
+
+// ============================================
+// Regenerate Seasons Functions
+// ============================================
+
+let availableSeasons = {};
+let selectedSeasons = new Set();
+
+async function openRegenerateSeasonsModal() {
+    const modal = document.getElementById('regenerateSeasonsModal');
+    const loadingIndicator = document.getElementById('seasonsLoadingIndicator');
+    const listContainer = document.getElementById('seasonsListContainer');
+    const confirmBtn = document.getElementById('confirmRegenerateSeasonsBtn');
+    const errorDiv = document.getElementById('regenerateSeasonsError');
+
+    modal.style.display = 'flex';
+    loadingIndicator.style.display = 'block';
+    listContainer.style.display = 'none';
+    confirmBtn.disabled = true;
+    errorDiv.style.display = 'none';
+    selectedSeasons.clear();
+
+    try {
+        const response = await fetch('/api/master-training/available-seasons');
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load seasons');
+        }
+
+        availableSeasons = data.seasons;
+        renderSeasonsList();
+
+        loadingIndicator.style.display = 'none';
+        listContainer.style.display = 'block';
+    } catch (error) {
+        loadingIndicator.innerHTML = `<span style="color: #dc3545;">Error: ${error.message}</span>`;
+    }
+}
+
+function renderSeasonsList() {
+    const container = document.getElementById('seasonsList');
+    container.innerHTML = '';
+
+    // Sort seasons in descending order (most recent first)
+    const sortedSeasons = Object.keys(availableSeasons).sort().reverse();
+
+    for (const season of sortedSeasons) {
+        const info = availableSeasons[season];
+        const inMaster = info.in_master;
+        const mongoCount = info.count;
+        const masterCount = info.master_count || 0;
+
+        const div = document.createElement('div');
+        div.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #eee;';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `season-${season}`;
+        checkbox.dataset.season = season;
+        checkbox.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
+        checkbox.checked = selectedSeasons.has(season);
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                selectedSeasons.add(season);
+            } else {
+                selectedSeasons.delete(season);
+            }
+            updateRegenerateSeasonsButton();
+        });
+
+        const label = document.createElement('label');
+        label.htmlFor = `season-${season}`;
+        label.style.cssText = 'flex: 1; cursor: pointer; display: flex; justify-content: space-between; align-items: center;';
+
+        const seasonText = document.createElement('span');
+        seasonText.textContent = season;
+        seasonText.style.fontWeight = '600';
+
+        const statusSpan = document.createElement('span');
+        statusSpan.style.fontSize = '12px';
+
+        if (inMaster) {
+            statusSpan.innerHTML = `<span style="color: #28a745;">In master: ${masterCount}</span> / <span style="color: #666;">MongoDB: ${mongoCount}</span>`;
+        } else {
+            statusSpan.innerHTML = `<span style="color: #dc3545; font-weight: 600;">MISSING</span> / <span style="color: #666;">MongoDB: ${mongoCount}</span>`;
+        }
+
+        label.appendChild(seasonText);
+        label.appendChild(statusSpan);
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        container.appendChild(div);
+    }
+}
+
+function selectAllSeasons() {
+    const checkboxes = document.querySelectorAll('#seasonsList input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+        selectedSeasons.add(cb.dataset.season);
+    });
+    updateRegenerateSeasonsButton();
+}
+
+function selectMissingSeasons() {
+    selectedSeasons.clear();
+    const checkboxes = document.querySelectorAll('#seasonsList input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        const season = cb.dataset.season;
+        const info = availableSeasons[season];
+        if (!info.in_master) {
+            cb.checked = true;
+            selectedSeasons.add(season);
+        } else {
+            cb.checked = false;
+        }
+    });
+    updateRegenerateSeasonsButton();
+}
+
+function deselectAllSeasons() {
+    const checkboxes = document.querySelectorAll('#seasonsList input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = false;
+    });
+    selectedSeasons.clear();
+    updateRegenerateSeasonsButton();
+}
+
+function updateRegenerateSeasonsButton() {
+    const btn = document.getElementById('confirmRegenerateSeasonsBtn');
+    btn.disabled = selectedSeasons.size === 0;
+    btn.textContent = selectedSeasons.size > 0
+        ? `Regenerate ${selectedSeasons.size} Season${selectedSeasons.size > 1 ? 's' : ''}`
+        : 'Regenerate Selected';
+}
+
+function closeRegenerateSeasonsModal() {
+    document.getElementById('regenerateSeasonsModal').style.display = 'none';
+}
+
+async function confirmRegenerateSeasons() {
+    if (selectedSeasons.size === 0) return;
+
+    const seasons = Array.from(selectedSeasons);
+    const noPlayer = document.getElementById('noPlayerSeasons').checked;
+    const errorDiv = document.getElementById('regenerateSeasonsError');
+    const confirmBtn = document.getElementById('confirmRegenerateSeasonsBtn');
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Starting...';
+    errorDiv.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/master-training/regenerate-seasons', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                seasons: seasons,
+                no_player: noPlayer
+            })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to start regeneration');
+        }
+
+        // Close modal
+        closeRegenerateSeasonsModal();
+
+        // Show progress UI
+        const progressContainer = document.getElementById('jobProgressContainer');
+        const progressBar = document.getElementById('jobProgressBar');
+        const progressPercent = document.getElementById('jobProgressPercent');
+        const progressMessage = document.getElementById('jobProgressMessage');
+        const jobError = document.getElementById('jobError');
+
+        progressContainer.classList.add('active');
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressMessage.textContent = `Starting regeneration for ${seasons.length} seasons...`;
+        jobError.style.display = 'none';
+
+        // Start polling
+        currentAddColumnJobId = data.job_id;
+        startAddColumnJobPolling(data.job_id);
+
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `Regenerate ${seasons.length} Season${seasons.length > 1 ? 's' : ''}`;
+    }
+}
+
+// ============================================
+// Regenerate Full Master Training
+// ============================================
+
+function confirmRegenerateFullMaster() {
+    const confirmed = confirm(
+        'This will regenerate the ENTIRE master training CSV from scratch.\n\n' +
+        'This operation:\n' +
+        '- Creates a backup of the current file\n' +
+        '- Regenerates ALL seasons using ALL features from the registry\n' +
+        '- May take a significant amount of time\n\n' +
+        'Are you sure you want to proceed?'
+    );
+
+    if (!confirmed) return;
+
+    // Ask about player features
+    const noPlayer = confirm(
+        'Skip player-level features?\n\n' +
+        'YES = Faster generation (no PER, no injuries)\n' +
+        'NO = Full features (includes PER and injuries)'
+    );
+
+    startFullRegeneration(noPlayer);
+}
+
+async function startFullRegeneration(noPlayer) {
+    try {
+        const response = await fetch('/api/master-training/regenerate-full', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                no_player: noPlayer
+            })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            alert(`Error: ${data.error}`);
+            return;
+        }
+
+        // Show progress UI
+        const progressContainer = document.getElementById('jobProgressContainer');
+        const progressBar = document.getElementById('jobProgressBar');
+        const progressPercent = document.getElementById('jobProgressPercent');
+        const progressMessage = document.getElementById('jobProgressMessage');
+        const jobError = document.getElementById('jobError');
+
+        progressContainer.classList.add('active');
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressMessage.textContent = 'Starting full master training regeneration...';
+        jobError.style.display = 'none';
+
+        // Start polling
+        currentAddColumnJobId = data.job_id;
+        startAddColumnJobPolling(data.job_id);
+
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+</script>
+{% endblock %}

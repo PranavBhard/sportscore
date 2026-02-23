@@ -52,6 +52,10 @@ class SimpleCache:
                 expires_at=time.time() + ttl
             )
 
+    def delete(self, key: str) -> None:
+        with self._lock:
+            self._cache.pop(key, None)
+
     def clear(self) -> None:
         with self._lock:
             self._cache.clear()

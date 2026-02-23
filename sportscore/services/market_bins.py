@@ -6,6 +6,7 @@ groups fills into positions, joins with settlements, and buckets P&L by
 implied-probability bins.
 """
 from typing import List, Dict, Optional, Tuple, Any
+from collections import OrderedDict
 
 
 # ── Fetch helpers (paginated) ───────────────────────────────────────────
@@ -183,6 +184,10 @@ def compute_market_bins(
         cost = yes_cost + no_cost
         pnl = revenue - cost
 
+        # Earliest fill created_time as position entry time
+        created_times = [f.get('created_time', '') for f in ticker_fills if f.get('created_time')]
+        created_time = min(created_times) if created_times else ''
+
         positions.append({
             'ticker': ticker,
             'implied_prob': implied_prob,
@@ -190,6 +195,7 @@ def compute_market_bins(
             'revenue': revenue,
             'pnl': pnl,
             'won': pnl > 0,
+            'created_time': created_time,
         })
 
     # 4. Assign positions to bins
@@ -245,4 +251,88 @@ def compute_market_bins(
         'n_positions': total_count,
         'n_fills': len(filtered_fills),
         'n_unsettled': n_unsettled,
+        'positions': positions,
     }
+
+
+# ── Time-based binning ────────────────────────────────────────────────
+
+_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+_MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December']
+
+
+def _parse_timestamp(ts: str):
+    """Parse ISO-8601 timestamp string to datetime, or None."""
+    if not ts:
+        return None
+    from datetime import datetime, timezone
+    # Handle formats: 2024-01-15T12:30:00Z or 2024-01-15T12:30:00.123Z
+    ts = ts.replace('Z', '+00:00')
+    try:
+        return datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
+
+
+def compute_time_bins(
+    positions: List[dict],
+    bin_type: str,  # 'day_of_week', 'month', 'hour'
+) -> List[dict]:
+    """
+    Group positions by a time component and aggregate P&L stats.
+
+    Returns bins in natural order (Mon-Sun, Jan-Dec, 0-23).
+    """
+    # Group positions by time key
+    groups: Dict[str, List[dict]] = OrderedDict()
+
+    if bin_type == 'day_of_week':
+        for day in _DAY_ORDER:
+            groups[day] = []
+    elif bin_type == 'month':
+        for month in _MONTH_ORDER:
+            groups[month] = []
+    elif bin_type == 'hour':
+        for h in range(24):
+            groups[f"{h:02d}:00"] = []
+
+    for pos in positions:
+        dt = _parse_timestamp(pos.get('created_time', ''))
+        if dt is None:
+            continue
+
+        if bin_type == 'day_of_week':
+            key = _DAY_ORDER[dt.weekday()]
+        elif bin_type == 'month':
+            key = _MONTH_ORDER[dt.month - 1]
+        elif bin_type == 'hour':
+            key = f"{dt.hour:02d}:00"
+        else:
+            continue
+
+        groups.setdefault(key, []).append(pos)
+
+    # Aggregate each group
+    bin_results = []
+    for label, bucket in groups.items():
+        count = len(bucket)
+        won = sum(1 for p in bucket if p.get('won'))
+        cost = sum(p.get('cost', 0) for p in bucket)
+        revenue = sum(p.get('revenue', 0) for p in bucket)
+        pnl = sum(p.get('pnl', 0) for p in bucket)
+        win_pct = round((won / count * 100) if count > 0 else 0, 1)
+        roi = round((pnl / cost * 100) if cost > 0 else 0, 1)
+
+        bin_results.append({
+            'label': label,
+            'count': count,
+            'won': won,
+            'win_pct': win_pct,
+            'cost': cost,
+            'revenue': revenue,
+            'pnl': pnl,
+            'roi': roi,
+        })
+
+    return bin_results

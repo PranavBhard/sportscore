@@ -1,0 +1,3791 @@
+{% extends "base.html" %}
+
+{% block title %}Model Configuration{% endblock %}
+
+{% block content %}
+<div class="model-config-container">
+
+    <!-- Header Bar -->
+    <div class="config-header-bar">
+        <h2 style="margin: 0;">Model Configurations</h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button type="button" class="btn btn-primary" onclick="openCreateModal()">+ New Config</button>
+            <button type="button" id="create-ensemble-btn" class="btn btn-primary" style="background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);">Create Ensemble</button>
+        </div>
+    </div>
+
+    <!-- Ensemble Configuration (shown when 2+ models checked) -->
+    <div id="ensemble-config-section" style="display: none; padding: 15px; margin-bottom: 15px; background: #f5f9ff; border: 1px solid #d0e3ff; border-radius: 8px;">
+        <h4 style="margin-top: 0; margin-bottom: 12px; color: #27ae60; font-size: 0.95em;">Create Ensemble</h4>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label style="font-size: 0.9em; font-weight: 500;">Name (optional):</label>
+                <input type="text" id="ensemble-name" placeholder="e.g., My 3-model ensemble" style="width: 100%; padding: 6px; border: 1px solid #d0e3ff; border-radius: 4px; font-size: 0.85em; box-sizing: border-box;">
+            </div>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="ensemble-use-disagree" class="ensemble-meta-checkbox" style="cursor: pointer;">
+                    <span style="font-size: 0.9em;">Include Disagreement Features (disagree_*)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="ensemble-use-conf" class="ensemble-meta-checkbox" style="cursor: pointer;">
+                    <span style="font-size: 0.9em;">Include Confidence Features (conf_*)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="ensemble-use-logit" class="ensemble-meta-checkbox" style="cursor: pointer;">
+                    <span style="font-size: 0.9em;">Log-odds Transform (feed logit(p_*) to meta-learner)</span>
+                </label>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label style="font-size: 0.9em; font-weight: 500;">Custom Features (comma-separated):</label>
+                <input type="text" id="ensemble-custom-features" placeholder="e.g., pred_margin, points|season|avg|diff" style="width: 100%; padding: 6px; border: 1px solid #d0e3ff; border-radius: 4px; font-size: 0.85em;">
+                <span style="font-size: 0.8em; color: #666;">Leave empty for no custom features. Common: pred_margin</span>
+            </div>
+            <div id="ensemble-meta-summary" style="font-size: 0.85em; color: #555; padding-top: 8px; border-top: 1px solid #d0e3ff; display: none;">
+                <strong>Meta features to include:</strong> <span id="ensemble-meta-summary-text">None selected</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter and Sort Controls -->
+    <div class="filter-sort-controls">
+                <div class="filter-group">
+                    <label for="filter-name">Name:</label>
+                    <input type="text" id="filter-name" placeholder="Filter by name..." class="filter-text-input">
+                </div>
+
+                <div class="filter-group">
+                    <label for="filter-model-type">Model Type:</label>
+                    <select id="filter-model-type" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="LogisticRegression">Logistic Regression</option>
+                        <option value="RandomForest">Random Forest</option>
+                        <option value="XGBoost">XGBoost</option>
+                        <option value="SVM">SVM</option>
+                        <option value="GradientBoosting">Gradient Boosting</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-calibration">Calibration:</label>
+                    <select id="filter-calibration" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="true">Calibrated</option>
+                        <option value="false">Not Calibrated</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-calibration-method">Cal Method:</label>
+                    <select id="filter-calibration-method" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="isotonic">Isotonic</option>
+                        <option value="sigmoid">Sigmoid</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filter-time-config">Time Config:</label>
+                    <select id="filter-time-config" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <!-- Populated dynamically from configs -->
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filter-selected">Status:</label>
+                    <select id="filter-selected" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="true">Selected</option>
+                        <option value="false">Not Selected</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="filter-injuries">Injuries:</label>
+                    <select id="filter-injuries" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="true">With Injuries</option>
+                        <option value="false">Without Injuries</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="sort-by">Sort By:</label>
+                    <select id="sort-by" onchange="applyFiltersAndSort()">
+                        <option value="selected_first">Selected First</option>
+                        <option value="trained_at_desc" selected>Date (Newest)</option>
+                        <option value="trained_at_asc">Date (Oldest)</option>
+                        <option value="accuracy_desc">Accuracy (High)</option>
+                        <option value="accuracy_asc">Accuracy (Low)</option>
+                        <option value="log_loss_asc">Log Loss (Low)</option>
+                        <option value="log_loss_desc">Log Loss (High)</option>
+                        <option value="brier_asc">Brier (Low)</option>
+                        <option value="brier_desc">Brier (High)</option>
+                        <option value="feature_count_desc">Features (Most)</option>
+                        <option value="feature_count_asc">Features (Least)</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; gap: 6px;">
+                        <input type="checkbox" id="show-ensembles-toggle" onchange="applyFiltersAndSort()">
+                        <span>Show Ensembles</span>
+                    </label>
+                </div>
+
+                <div class="filter-group">
+                    <button type="button" id="reset-filters-btn" class="btn btn-small" onclick="resetFiltersAndSort()">Reset</button>
+                </div>
+            </div>
+            
+            <!-- Unified Results List -->
+            <div id="results-content" class="results-content">
+                <!-- Job Progress Bar -->
+                <div id="job-progress-container" style="display: none; margin-bottom: 20px; padding: 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #ddd;">
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span style="font-weight: 600; color: #333;">Training in progress...</span>
+                            <span id="job-progress-percent" style="font-weight: 600; color: #667eea;">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 24px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
+                            <div id="job-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.3s ease; border-radius: 12px;"></div>
+                        </div>
+                    </div>
+                    <div id="job-progress-message" style="margin-top: 10px; color: #666; font-size: 0.9em;">Initializing...</div>
+                    <div id="job-error" style="display: none; margin-top: 10px; padding: 10px; background: #fee; border: 1px solid #fcc; border-radius: 4px; color: #c33;"></div>
+                </div>
+                <div id="history-loading" class="loading" style="display: none;">Loading history...</div>
+                <div id="history-list"></div>
+                <div id="history-pagination" class="pagination" style="display: none;"></div>
+            </div>
+</div>
+
+<!-- Create/Edit Config Modal -->
+<div id="config-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 id="config-modal-title">New Config</h3>
+            <button type="button" class="modal-close" onclick="closeConfigModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <input type="hidden" id="modal-config-id" value="">
+
+            <!-- Name -->
+            <div class="modal-field">
+                <label for="modal-config-name">Name</label>
+                <input type="text" id="modal-config-name" placeholder="My Config" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <!-- Model Type (single select) -->
+            <div class="modal-field">
+                <label for="modal-model-type">Model Type</label>
+                <select id="modal-model-type" onchange="updateModalCValuesVisibility()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="LogisticRegression">Logistic Regression</option>
+                    <option value="GradientBoosting">Gradient Boosting</option>
+                    <option value="SVM">SVM</option>
+                    <option value="RandomForest">Random Forest</option>
+                    <option value="NaiveBayes">Naive Bayes</option>
+                    <option value="NeuralNetwork">Neural Network</option>
+                </select>
+            </div>
+
+            <!-- Feature Sets -->
+            <div class="modal-field">
+                <h3 style="margin-bottom: 10px;">
+                    Feature Sets <span id="modal-feature-count">(0)</span>
+                    <button type="button" id="modal-edit-features-btn" class="edit-icon-btn" title="Edit features by name" style="margin-left: 8px; background: none; border: none; cursor: pointer; padding: 2px 4px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </h3>
+                <div class="feature-sets-container" id="modal-feature-sets">
+                    {% for set_name, set_features in feature_sets.items() %}
+                    <div class="feature-set-item">
+                        <div class="feature-set-header">
+                            <input type="checkbox"
+                                   name="modal_feature_sets"
+                                   value="{{ set_name }}"
+                                   id="modal-set-{{ set_name }}"
+                                   class="feature-set-checkbox modal-set-checkbox">
+                            <label for="modal-set-{{ set_name }}" class="feature-set-label">
+                                {{ set_name.replace('_', ' ').title() }}
+                                <span class="feature-count" id="modal-set-count-{{ set_name }}">(0/{{ set_features|length }})</span>
+                            </label>
+                            <button type="button" class="expand-btn" data-set="{{ set_name }}" aria-label="Expand">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M6 3L1 8L11 8L6 3Z" fill="currentColor"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="feature-list" id="modal-features-{{ set_name }}" style="display: none;">
+                            {% for feature in set_features %}
+                            <label class="feature-item{% if feature not in available_features %} feature-unavailable{% endif %}">
+                                <input type="checkbox"
+                                       name="modal_features"
+                                       value="{{ feature }}"
+                                       class="feature-checkbox modal-feature-checkbox"
+                                       data-set="{{ set_name }}"
+                                       {% if feature not in available_features %}disabled title="Not available in training data"{% endif %}>
+                                <span class="feature-name">{{ feature }}</span>
+                                {% if feature not in available_features %}<span class="feature-unavailable-badge" title="Not in MASTER_TRAINING.csv">⚠</span>{% endif %}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- C-Values -->
+            <div class="modal-field" id="modal-c-values-section">
+                <label>C-Values</label>
+                <div class="checkbox-group" style="flex-direction: row; flex-wrap: wrap;">
+                    <label><input type="checkbox" name="modal_c_values" value="0.01"> 0.01</label>
+                    <label><input type="checkbox" name="modal_c_values" value="0.1" checked> 0.1</label>
+                    <label><input type="checkbox" name="modal_c_values" value="1.0" checked> 1.0</label>
+                    <label><input type="checkbox" name="modal_c_values" value="10.0"> 10.0</label>
+                </div>
+            </div>
+
+            <!-- Min Games Played -->
+            <div class="modal-field">
+                <label for="modal-min-games-played">Minimum Prior Same-Season Games Per Team</label>
+                <input type="number" id="modal-min-games-played" value="15" min="0" step="1" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <!-- Exclude Seasons -->
+            <div class="modal-field">
+                <label for="modal-exclude-seasons">Exclude Seasons (comma-separated start years)</label>
+                <input type="text" id="modal-exclude-seasons" placeholder="e.g. 2019,2020" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <!-- Time-Based Calibration -->
+            <div class="modal-field">
+                <div class="checkbox-group" style="margin-bottom: 10px;">
+                    <label><input type="checkbox" id="modal-use-time-calibration" onchange="toggleModalCalibration()"> Use Time-Based Calibration</label>
+                </div>
+                <div id="modal-calibration-options" style="display: none; padding-left: 10px; border-left: 3px solid #667eea;">
+                    <div style="margin-bottom: 12px;">
+                        <label for="modal-calibration-method" style="display: block; margin-bottom: 5px;">Calibration Method:</label>
+                        <select id="modal-calibration-method" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="isotonic">Isotonic</option>
+                            <option value="sigmoid">Sigmoid</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <label for="modal-begin-year" style="display: block; margin-bottom: 5px;">Begin Year:</label>
+                        <input type="number" id="modal-begin-year" min="2007" max="2030" value="2007" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <label for="modal-calibration-years" style="display: block; margin-bottom: 5px;">Calibration Years (comma-separated):</label>
+                        <input type="text" id="modal-calibration-years" placeholder="2022,2023" value="2023" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div>
+                        <label for="modal-evaluation-year" style="display: block; margin-bottom: 5px;">Evaluation Year:</label>
+                        <input type="number" id="modal-evaluation-year" min="2007" max="2030" value="2024" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 20px; border-top: 1px solid #ddd;">
+            <button type="button" class="btn btn-secondary" onclick="closeConfigModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" id="modal-save-btn" onclick="saveModal()">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- Feature Selection Modal -->
+<div id="feature-selection-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Select Features by Name</h3>
+            <button type="button" class="modal-close" id="close-feature-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 10px; color: #666; font-size: 0.9em;">
+                Enter feature names separated by commas or new lines. Features will be automatically checked.
+            </p>
+            <textarea 
+                id="feature-names-input" 
+                placeholder="feature1, feature2, feature3&#10;or&#10;feature1&#10;feature2&#10;feature3"
+                style="width: 100%; min-height: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 0.9em; resize: vertical;"
+            ></textarea>
+            <div style="margin-top: 15px;">
+                <label style="display: flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="clear-and-reselect" style="margin-right: 8px;">
+                    <span>Clear all selections and only select features from the list above</span>
+                </label>
+                <p style="margin-top: 5px; margin-left: 24px; color: #666; font-size: 0.85em;">
+                    If unchecked, currently selected features will be kept and new ones from the list will be added.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+            <button type="button" class="btn btn-secondary" id="cancel-feature-modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="apply-feature-selection">Apply</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.model-config-container {
+    max-width: 100%;
+    width: 100%;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.config-header {
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.config-header h1 {
+    margin: 0 0 10px 0;
+    color: #333;
+}
+
+.config-header p {
+    color: #666;
+    margin: 0;
+}
+
+.config-header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #eee;
+}
+
+.modal-field {
+    margin-bottom: 20px;
+}
+
+.modal-field > label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #333;
+}
+
+.config-section {
+    margin-bottom: 25px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+.config-section:last-child {
+    border-bottom: none;
+}
+
+.config-section h3 {
+    margin: 0 0 15px 0;
+    font-size: 1.1em;
+    color: #333;
+    display: flex;
+    align-items: center;
+}
+
+.edit-icon-btn {
+    color: #667eea;
+    transition: color 0.2s;
+}
+
+.edit-icon-btn:hover {
+    color: #5568d3;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 0;
+    border: 1px solid #888;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-close:hover,
+.modal-close:focus {
+    color: #000;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.95em;
+}
+
+.checkbox-group input[type="checkbox"] {
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.feature-sets-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.feature-set-item {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+}
+
+.feature-set-header {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    user-select: none;
+}
+
+.feature-set-header:hover {
+    background: #f5f5f5;
+}
+
+.feature-set-header:hover .feature-set-label {
+    color: #667eea;
+}
+
+.feature-set-checkbox {
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.feature-set-checkbox:indeterminate {
+    background: #667eea;
+    border-color: #667eea;
+}
+
+.feature-set-checkbox:indeterminate::before {
+    content: '';
+    display: block;
+    width: 10px;
+    height: 2px;
+    background: white;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.feature-set-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    margin: 0;
+}
+
+.feature-count {
+    font-size: 0.85em;
+    color: #666;
+    font-weight: normal;
+}
+
+.expand-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    transition: transform 0.2s;
+}
+
+.expand-btn:hover {
+    color: #667eea;
+}
+
+.expand-btn.expanded {
+    transform: rotate(180deg);
+}
+
+.feature-list {
+    padding: 0 10px 10px 40px;
+    max-height: 300px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.feature-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.feature-item:hover {
+    background: #f9f9f9;
+    padding-left: 4px;
+    margin-left: -4px;
+    border-radius: 3px;
+}
+
+.feature-checkbox {
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.feature-name {
+    color: #555;
+    font-family: monospace;
+    font-size: 0.85em;
+}
+
+/* Unavailable features (not in MASTER_TRAINING.csv) */
+.feature-unavailable {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feature-unavailable:hover {
+    background: transparent;
+}
+
+.feature-unavailable .feature-checkbox {
+    cursor: not-allowed;
+}
+
+.feature-unavailable .feature-name {
+    color: #999;
+    text-decoration: line-through;
+}
+
+.feature-unavailable-badge {
+    margin-left: 6px;
+    color: #d9534f;
+    font-size: 0.9em;
+    cursor: help;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 120px;
+    height: 34px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-label {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.9em;
+    font-weight: 500;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+
+.toggle-label:first-of-type {
+    left: 15px;
+    color: #667eea;
+}
+
+.toggle-label:last-of-type {
+    right: 15px;
+    color: #999;
+}
+
+.toggle-switch input:checked ~ label .toggle-label:first-of-type {
+    color: #999;
+}
+
+.toggle-switch input:checked ~ label .toggle-label:last-of-type {
+    color: #667eea;
+}
+
+.toggle-switch label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    border-radius: 34px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.toggle-switch label:before {
+    content: "";
+    position: absolute;
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+}
+
+.toggle-switch input:checked + label {
+    background-color: #667eea;
+}
+
+.toggle-switch input:checked + label:before {
+    transform: translateX(86px);
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.btn-secondary:hover {
+    background: #d0d0d0;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.85em;
+}
+
+.btn-train {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-train:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+    border-color: #e74c3c;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+    border-color: #c0392b;
+}
+
+.config-copy-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #667eea;
+    transition: all 0.2s;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+.config-copy-btn:hover {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.config-copy-btn.copied {
+    color: #28a745;
+}
+
+.config-copy-btn.copied svg {
+    animation: copyPulse 0.3s ease;
+}
+
+@keyframes copyPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+.results-content {
+    background: white;
+    border-radius: 8px;
+    padding: 25px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.filter-sort-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 0.9em;
+    font-weight: 500;
+    color: #555;
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    font-size: 0.9em;
+    color: #333;
+    min-width: 120px;
+    cursor: pointer;
+}
+
+.filter-group select:hover {
+    border-color: #667eea;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.filter-text-input {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    font-size: 0.9em;
+    color: #333;
+    width: 150px;
+}
+
+.filter-text-input:hover {
+    border-color: #667eea;
+}
+
+.filter-text-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+
+.results-placeholder {
+    color: #999;
+    text-align: center;
+    padding: 40px;
+    font-style: italic;
+}
+
+.result-item {
+    background: #f9f9f9;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 15px;
+    border-left: 4px solid #667eea;
+}
+
+.result-item h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+}
+
+.result-item .result-meta {
+    color: #666;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+.result-item .result-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.metric {
+    background: white;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.metric-label {
+    font-size: 0.85em;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.metric-value {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #333;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #667eea;
+}
+
+.loading::after {
+    content: "...";
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: "."; }
+    40% { content: ".."; }
+    60%, 100% { content: "..."; }
+}
+
+.error {
+    background: #fee;
+    border-left-color: #e74c3c;
+    color: #c0392b;
+}
+
+.success {
+    background: #efe;
+    border-left-color: #27ae60;
+}
+
+.rated-features-section {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+}
+
+.rated-features-section h5 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 0.95em;
+    font-weight: 600;
+}
+
+.rated-features-list {
+    max-height: 400px;
+    overflow-y: auto;
+    background: white;
+    border-radius: 4px;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+}
+
+.rated-feature-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.85em;
+    color: #555;
+}
+
+.rated-feature-item:hover {
+    background: #f5f5f5;
+    border-radius: 2px;
+}
+
+.feature-rank {
+    display: inline-block;
+    width: 30px;
+    color: #999;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.feature-name {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.feature-score {
+    color: #667eea;
+    font-weight: 600;
+    font-size: 0.85em;
+    margin-left: 8px;
+}
+
+/* Current Run Item Styles */
+.current-run-item {
+    background: #e8f4f8;
+    border-left: 4px solid #667eea;
+    margin-bottom: 20px;
+}
+
+.current-run-badge {
+    background: #667eea;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: normal;
+    margin-left: 10px;
+}
+
+/* History Section Styles */
+.history-item {
+    background: #f9f9f9;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 12px;
+    border-left: 4px solid #667eea;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.history-item:hover {
+    background: #f0f0f0;
+    transform: translateX(2px);
+}
+
+.history-item.selected {
+    border-left-color: #27ae60;
+    background: #f0f9f0;
+}
+
+.history-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.history-item-name {
+    font-weight: 600;
+    color: #333;
+    font-size: 1em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-item-name input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95em;
+}
+
+.history-item-name .name-display {
+    cursor: pointer;
+}
+
+.history-item-name .name-display:hover {
+    color: #667eea;
+    text-decoration: underline;
+}
+
+.history-item-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.history-item-meta {
+    display: flex;
+    gap: 15px;
+    font-size: 0.85em;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.history-item-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+    position: relative;
+}
+
+.copy-metrics-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 3px 6px;
+    cursor: pointer;
+    color: #888;
+    font-size: 13px;
+    line-height: 1;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.copy-metrics-btn:hover {
+    color: #333;
+    border-color: #999;
+}
+
+.history-item-details {
+    display: none;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #ddd;
+}
+
+.history-item.expanded .history-item-details {
+    display: block;
+}
+
+.history-item.expanded .expand-icon {
+    transform: rotate(180deg);
+}
+
+.expand-icon {
+    transition: transform 0.2s;
+    font-size: 0.8em;
+    color: #666;
+}
+
+.selected-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #27ae60;
+    color: white;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+/* Embedded Base Model Panels (inside ensemble expanded history item) */
+.embedded-base-models-section {
+    margin-top: 15px;
+}
+
+.embedded-base-model-card {
+    background: white;
+    border: 1px solid #e3e6ef;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.embedded-base-model-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.embedded-base-model-title {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.embedded-base-model-title .name {
+    font-weight: 700;
+    color: #333;
+}
+
+.embedded-base-model-title .sub {
+    font-size: 0.85em;
+    color: #666;
+    font-family: 'Courier New', monospace;
+}
+
+.embedded-panels-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.embedded-panel {
+    background: #fafbff;
+    border: 1px solid #e8ecff;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.embedded-panel h6 {
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.embedded-subsection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.embedded-subsection-toggle {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #667eea;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.embedded-subsection-toggle:hover {
+    background: rgba(102, 126, 234, 0.10);
+}
+
+.embedded-subsection-toggle .chev {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 0.85em;
+    line-height: 1;
+}
+
+.embedded-subsection-toggle.expanded .chev {
+    transform: rotate(180deg);
+}
+
+.embedded-subsection-content {
+    display: none;
+}
+
+.embedded-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.embedded-metric-card {
+    background: white;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 12px;
+    border-left: 5px solid #667eea;
+}
+
+.embedded-metric-label {
+    font-size: 0.78em;
+    color: #666;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.embedded-metric-value {
+    font-size: 1.6em;
+    font-weight: 800;
+    color: #333;
+    margin-top: 6px;
+    line-height: 1.1;
+}
+
+.embedded-metric-sub {
+    font-size: 0.85em;
+    color: #777;
+    margin-top: 6px;
+}
+
+.embedded-kv {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    font-size: 0.9em;
+    color: #444;
+}
+
+.embedded-kv .k {
+    color: #666;
+    font-weight: 600;
+    margin-right: 6px;
+}
+
+.embedded-feature-sets {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.embedded-feature-set-item {
+    background: white;
+    border: 1px solid #e6e6e6;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.embedded-feature-set-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: linear-gradient(to right, #f8f9fa 0%, #ffffff 100%);
+}
+
+.embedded-feature-set-header input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #667eea;
+}
+
+.embedded-feature-set-header .label {
+    flex: 1;
+    font-weight: 700;
+    color: #333;
+    font-size: 0.92em;
+}
+
+.embedded-feature-set-header .count {
+    font-size: 0.82em;
+    color: #667eea;
+    font-weight: 700;
+    background: #e8f0fe;
+    padding: 3px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+
+.embedded-feature-set-header .toggle {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    color: #666;
+}
+
+.embedded-feature-set-header .toggle:hover {
+    background: #f0f4ff;
+    color: #667eea;
+}
+
+.embedded-feature-set-header .toggle.expanded {
+    transform: rotate(180deg);
+    color: #667eea;
+}
+
+.embedded-feature-list {
+    display: none;
+    padding: 10px 12px 12px 40px;
+    background: #fafafa;
+    border-top: 1px solid #eee;
+    max-height: 250px;
+    overflow: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    color: #444;
+    line-height: 1.4;
+}
+
+.embedded-feature-pill {
+    display: inline-block;
+    margin: 3px 6px 0 0;
+    padding: 3px 8px;
+    border: 1px solid #e6e6e6;
+    border-radius: 999px;
+    background: white;
+}
+
+.embedded-missing {
+    padding: 10px 12px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    color: #856404;
+    font-size: 0.9em;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.pagination-btn {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    background: white;
+    color: #333;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-info {
+    color: #666;
+    font-size: 0.9em;
+}
+</style>
+
+<script>
+const currentLeague = '{{ league_id }}';
+
+// Centralized API URL helper - always includes league prefix
+function apiUrl(path) {
+    return `/${currentLeague}${path}`;
+}
+
+let embeddedFeatureSetDefs = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Event listeners
+    document.getElementById('create-ensemble-btn').addEventListener('click', createEnsemble);
+
+    // Name filter with debounce
+    let nameFilterTimeout = null;
+    document.getElementById('filter-name').addEventListener('input', function() {
+        clearTimeout(nameFilterTimeout);
+        nameFilterTimeout = setTimeout(applyFiltersAndSort, 300);
+    });
+
+    // Ensemble meta feature listeners
+    document.getElementById('ensemble-use-disagree').addEventListener('change', updateEnsembleMetaSummary);
+    document.getElementById('ensemble-use-conf').addEventListener('change', updateEnsembleMetaSummary);
+    document.getElementById('ensemble-use-logit').addEventListener('change', updateEnsembleMetaSummary);
+    document.getElementById('ensemble-custom-features').addEventListener('input', updateEnsembleMetaSummary);
+
+    // Event delegation for dynamically created ensemble checkboxes
+    document.getElementById('results-content').addEventListener('change', function(e) {
+        if (e.target.classList.contains('ensemble-checkbox')) {
+            updateEnsembleConfigVisibility();
+        }
+    });
+
+    // Load history on page load
+    loadHistory();
+
+    // Cache feature set definitions from the modal for embedded base-model panels
+    embeddedFeatureSetDefs = buildEmbeddedFeatureSetDefs();
+
+    // Modal: Feature set expansion handlers
+    document.querySelectorAll('#config-modal .expand-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            const setName = this.dataset.set;
+            const featureList = document.getElementById(`modal-features-${setName}`);
+            if (!featureList) return;
+            const isExpanded = featureList.style.display !== 'none';
+            featureList.style.display = isExpanded ? 'none' : 'block';
+            this.classList.toggle('expanded', !isExpanded);
+        });
+    });
+
+    // Modal: Header clickable to toggle checkbox
+    document.querySelectorAll('#config-modal .feature-set-header').forEach(header => {
+        header.addEventListener('click', function(e) {
+            if (e.target.closest('.expand-btn')) return;
+            if (e.target.type === 'checkbox' || e.target.closest('label')) return;
+            const checkbox = this.querySelector('.feature-set-checkbox');
+            if (checkbox) checkbox.click();
+        });
+    });
+
+    // Modal: Feature set checkbox toggle all features
+    document.querySelectorAll('#config-modal .modal-set-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const setName = this.value;
+            document.querySelectorAll(`#config-modal .modal-feature-checkbox[data-set="${setName}"]`).forEach(featureCb => {
+                featureCb.checked = this.checked;
+            });
+            updateModalSetCheckboxState(setName);
+        });
+    });
+
+    // Modal: Individual feature checkbox
+    document.querySelectorAll('#config-modal .modal-feature-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            updateModalSetCheckboxState(this.dataset.set);
+        });
+    });
+
+    // Feature selection modal (text input) handlers
+    const featureModal = document.getElementById('feature-selection-modal');
+    const closeFeatureModal = document.getElementById('close-feature-modal');
+    const cancelFeatureModal = document.getElementById('cancel-feature-modal');
+    const applyFeatureSelection = document.getElementById('apply-feature-selection');
+
+    document.getElementById('modal-edit-features-btn')?.addEventListener('click', function() {
+        featureModal.style.display = 'block';
+        const currentFeatures = Array.from(document.querySelectorAll('input[name="modal_features"]:checked')).map(cb => cb.value);
+        document.getElementById('feature-names-input').value = currentFeatures.join('\n');
+    });
+
+    if (closeFeatureModal) closeFeatureModal.addEventListener('click', () => featureModal.style.display = 'none');
+    if (cancelFeatureModal) cancelFeatureModal.addEventListener('click', () => featureModal.style.display = 'none');
+    if (applyFeatureSelection) applyFeatureSelection.addEventListener('click', applyFeatureSelectionFromModal);
+
+    window.addEventListener('click', function(event) {
+        if (event.target === featureModal) featureModal.style.display = 'none';
+        if (event.target === document.getElementById('config-modal')) closeConfigModal();
+    });
+});
+
+function escapeHtml(input) {
+    const s = String(input ?? '');
+    return s
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function copyMetrics(btn) {
+    const text = `Accuracy: ${btn.dataset.accuracy}\nLog Loss: ${btn.dataset.logloss}\nBrier Score: ${btn.dataset.brier}`;
+    navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '&#x2713;';
+        setTimeout(() => { btn.innerHTML = orig; }, 1200);
+    });
+}
+
+function safeId(input) {
+    return String(input ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '_')
+        .replace(/_+/g, '_');
+}
+
+function buildEmbeddedFeatureSetDefs() {
+    // Read the feature set definitions from the config modal DOM (rendered by Jinja)
+    const defs = [];
+    const setItems = document.querySelectorAll('#config-modal .feature-set-item');
+    setItems.forEach(item => {
+        const setCb = item.querySelector('.feature-set-checkbox');
+        if (!setCb) return;
+        const setName = setCb.value;
+        const featureCbs = item.querySelectorAll(`.feature-checkbox[data-set="${CSS.escape(setName)}"]`);
+        const features = Array.from(featureCbs).map(cb => cb.value);
+        defs.push({ setName, features });
+    });
+    return defs;
+}
+
+function toggleEmbeddedFeatureSet(btnEl) {
+    try {
+        const header = btnEl.closest('.embedded-feature-set-header');
+        const item = btnEl.closest('.embedded-feature-set-item');
+        const list = item ? item.querySelector('.embedded-feature-list') : null;
+        if (!list) return;
+        const isExpanded = window.getComputedStyle(list).display !== 'none';
+        list.style.display = isExpanded ? 'none' : 'block';
+        btnEl.classList.toggle('expanded', !isExpanded);
+    } catch (e) {
+        console.error('toggleEmbeddedFeatureSet failed:', e);
+    }
+}
+
+function toggleEmbeddedSubsection(btnEl, contentId) {
+    try {
+        const content = document.getElementById(contentId);
+        if (!content) return;
+        const isExpanded = window.getComputedStyle(content).display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        btnEl.classList.toggle('expanded', !isExpanded);
+    } catch (e) {
+        console.error('toggleEmbeddedSubsection failed:', e);
+    }
+}
+
+function renderTimeCalibrationBlock(cfg, titleText) {
+    const enabled = cfg && cfg.use_time_calibration;
+    const calMethod = cfg && cfg.calibration_method ? cfg.calibration_method : null;
+    const beginYear = cfg && cfg.begin_year ? cfg.begin_year : null;
+    const calYears = cfg ? (cfg.calibration_years || cfg.calibration_year) : null;
+    const evalYear = cfg && cfg.evaluation_year ? cfg.evaluation_year : null;
+
+    return `
+        <div class="embedded-panel">
+            <h6>${escapeHtml(titleText)}</h6>
+            <div class="embedded-kv">
+                <div><span class="k">Enabled:</span> ${enabled ? 'Yes' : 'No'}</div>
+                ${enabled ? `
+                    <div><span class="k">Method:</span> ${escapeHtml(calMethod || 'N/A')}</div>
+                    <div><span class="k">Begin Year:</span> ${escapeHtml(beginYear || 'N/A')}</div>
+                    <div><span class="k">Calibration Years:</span> ${escapeHtml(Array.isArray(calYears) ? calYears.join(', ') : (calYears || 'N/A'))}</div>
+                    <div><span class="k">Evaluation Year:</span> ${escapeHtml(evalYear || 'N/A')}</div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function renderRankedFeaturesPanel(base, title, arr) {
+    if (!arr || !Array.isArray(arr) || arr.length === 0) {
+        return `
+            <div class="embedded-panel">
+                <div class="embedded-subsection-header">
+                    <h6 style="margin:0;">${escapeHtml(title)}</h6>
+                </div>
+                <div style="color:#999; font-size:0.9em;">No ranked features saved for this model.</div>
+            </div>
+        `;
+    }
+
+    // Show all by default, but keep scroll bounded.
+    const items = arr.map((f) => {
+        const rank = f && f.rank ? f.rank : 0;
+        const name = f && f.name ? f.name : 'Unknown';
+        const score = (f && f.score !== null && f.score !== undefined)
+            ? (typeof f.score === 'number' ? f.score.toFixed(4) : String(f.score))
+            : null;
+        return `
+            <div class="rated-feature-item">
+                <span class="feature-rank">${escapeHtml(rank)}.</span>
+                <span class="feature-name">${escapeHtml(name)}</span>
+                ${score !== null ? `<span class="feature-score">(${escapeHtml(score)})</span>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    const contentId = `emb_rank_${safeId(base && base._id ? base._id : 'base')}_${safeId(title)}`;
+
+    return `
+        <div class="embedded-panel">
+            <div class="embedded-subsection-header">
+                <h6 style="margin:0;">${escapeHtml(title)} (${arr.length})</h6>
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <button type="button" class="config-copy-btn" onclick="event.stopPropagation(); copyRankedFeatures(this)" title="Copy rankings" data-rankings='${JSON.stringify(arr).replace(/'/g, "&#39;")}'>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <path d="M5 15H4C2.89543 15 2 14.1046 2 13V4C2 2.89543 2.89543 2 4 2H13C14.1046 2 15 2.89543 15 4V5" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+                    <button type="button" class="embedded-subsection-toggle" onclick="event.stopPropagation(); toggleEmbeddedSubsection(this, '${contentId}')" aria-label="Expand">
+                        <span>Show</span> <span class="chev">▼</span>
+                    </button>
+                </div>
+            </div>
+            <div class="embedded-subsection-content" id="${contentId}">
+                <div class="rated-features-list" style="max-height: 320px;">
+                    ${items}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderEmbeddedBaseModelPanels(ensembleConfig) {
+    const ids = (ensembleConfig && Array.isArray(ensembleConfig.ensemble_models)) ? ensembleConfig.ensemble_models : [];
+    if (ids.length === 0) return '';
+
+    const cards = ids.map((baseId, idx) => {
+        const base = allHistoryConfigs.find(c => c && c._id === baseId) || null;
+        if (!base) {
+            return `<div class="embedded-missing">Base model not found for id: <span style="font-family: monospace;">${escapeHtml(baseId)}</span> (it may have been deleted)</div>`;
+        }
+
+        const name = base.name || 'Base Model';
+        const modelType = base.model_type || 'Unknown';
+        const trainedAt = base.trained_at ? (() => { try { return new Date(base.trained_at).toLocaleString(); } catch { return 'Unknown'; } })() : 'Unknown';
+        const acc = (base.accuracy !== null && base.accuracy !== undefined && typeof base.accuracy === 'number') ? base.accuracy.toFixed(2) + '%' : (base.accuracy ?? 'N/A');
+        const logLoss = (base.log_loss !== null && base.log_loss !== undefined && typeof base.log_loss === 'number') ? base.log_loss.toFixed(4) : (base.log_loss ?? 'N/A');
+        const brier = (base.brier_score !== null && base.brier_score !== undefined && typeof base.brier_score === 'number') ? base.brier_score.toFixed(4) : (base.brier_score ?? 'N/A');
+
+        const kv = `
+            <div class="embedded-kv">
+                <div><span class="k">Model:</span> ${escapeHtml(modelType)}</div>
+                <div><span class="k">Trained:</span> ${escapeHtml(trainedAt)}</div>
+                ${base.best_c_value !== null && base.best_c_value !== undefined ? `<div><span class="k">Best C:</span> ${escapeHtml(base.best_c_value)}</div>` : ''}
+                ${base.min_games_played !== null && base.min_games_played !== undefined ? `<div><span class="k">Min Games Played:</span> ${escapeHtml(base.min_games_played)}</div>` : ''}
+                ${base.exclude_seasons && Array.isArray(base.exclude_seasons) && base.exclude_seasons.length > 0 ? `<div><span class="k">Excluded Seasons:</span> ${escapeHtml(base.exclude_seasons.join(', '))}</div>` : ''}
+                ${typeof base.use_master !== 'undefined' ? `<div><span class="k">Use Master CSV:</span> ${base.use_master ? 'Yes' : 'No'}</div>` : ''}
+                ${base.training_stats && (base.training_stats.train_games || base.training_stats.calibration_games || base.training_stats.eval_games) ? `<div><span class="k">Games:</span> Train: ${base.training_stats.train_games ?? 'N/A'} | Cal: ${base.training_stats.calibration_games ?? 'N/A'} | Eval: ${base.training_stats.eval_games ?? 'N/A'}</div>` : ''}
+            </div>
+        `;
+
+        return `
+            <div class="embedded-base-model-card">
+                <div class="embedded-base-model-header">
+                    <div class="embedded-base-model-title">
+                        <div class="name">${escapeHtml(name)}</div>
+                        <div class="sub">${escapeHtml(modelType)} • ${escapeHtml(base._id)}</div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button type="button" class="btn btn-small" onclick="event.stopPropagation(); openEditModal('${escapeHtml(base._id)}')">Edit</button>
+                        ${!base.selected ? `<button type="button" class="btn btn-small" onclick="event.stopPropagation(); selectConfig('${escapeHtml(base._id)}')">Select</button>` : `<span class="selected-badge">SELECTED</span>`}
+                    </div>
+                </div>
+                <div class="embedded-panels-grid">
+                    <div class="embedded-panel">
+                        <h6>Overview</h6>
+                        ${kv}
+                        <div class="embedded-metrics-grid">
+                            <div class="embedded-metric-card">
+                                <div class="embedded-metric-label">Accuracy</div>
+                                <div class="embedded-metric-value">${escapeHtml(acc)}</div>
+                                <div class="embedded-metric-sub">Cross-val mean</div>
+                            </div>
+                            <div class="embedded-metric-card">
+                                <div class="embedded-metric-label">Log Loss</div>
+                                <div class="embedded-metric-value">${escapeHtml(logLoss)}</div>
+                                <div class="embedded-metric-sub">Lower is better</div>
+                            </div>
+                            <div class="embedded-metric-card">
+                                <div class="embedded-metric-label">Brier</div>
+                                <div class="embedded-metric-value">${escapeHtml(brier)}</div>
+                                <div class="embedded-metric-sub">Lower is better</div>
+                            </div>
+                        </div>
+                    </div>
+                    ${modelType !== 'LogisticRegression' ? renderRankedFeaturesPanel(base, 'Rated Features (F-Score)', base.features_ranked) : ''}
+                    ${renderRankedFeaturesPanel(base, 'Rated Features (Importance)', base.features_ranked_by_importance)}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="embedded-base-models-section">
+            <h5>Base Models (${ids.length})</h5>
+            ${cards}
+        </div>
+    `;
+}
+
+
+// === Modal Feature Set Helpers ===
+
+function updateModalSetCheckboxState(setName) {
+    const setCheckbox = document.getElementById(`modal-set-${setName}`);
+    if (!setCheckbox) return;
+    const featureCheckboxes = document.querySelectorAll(`#config-modal .modal-feature-checkbox[data-set="${setName}"]`);
+    const checkedCount = Array.from(featureCheckboxes).filter(cb => cb.checked).length;
+    const totalCount = featureCheckboxes.length;
+
+    const countDisplay = document.getElementById(`modal-set-count-${setName}`);
+    if (countDisplay) countDisplay.textContent = `(${checkedCount}/${totalCount})`;
+
+    if (checkedCount === 0) {
+        setCheckbox.checked = false;
+        setCheckbox.indeterminate = false;
+    } else if (checkedCount === totalCount) {
+        setCheckbox.checked = true;
+        setCheckbox.indeterminate = false;
+    } else {
+        setCheckbox.checked = false;
+        setCheckbox.indeterminate = true;
+    }
+    updateModalFeatureCount();
+}
+
+function updateModalFeatureCount() {
+    const count = document.querySelectorAll('input[name="modal_features"]:checked').length;
+    const display = document.getElementById('modal-feature-count');
+    if (display) display.textContent = `(${count})`;
+}
+
+function updateModalCValuesVisibility() {
+    const modelType = document.getElementById('modal-model-type')?.value || '';
+    const section = document.getElementById('modal-c-values-section');
+    if (section) {
+        const showC = ['LogisticRegression', 'SVM', 'GradientBoosting'].includes(modelType);
+        section.style.display = showC ? 'block' : 'none';
+    }
+}
+
+function toggleModalCalibration() {
+    const checked = document.getElementById('modal-use-time-calibration')?.checked || false;
+    const opts = document.getElementById('modal-calibration-options');
+    if (opts) opts.style.display = checked ? 'block' : 'none';
+}
+
+// === Create/Edit Config Modal ===
+
+function openCreateModal() {
+    document.getElementById('config-modal-title').textContent = 'New Config';
+    document.getElementById('modal-config-id').value = '';
+    document.getElementById('modal-config-name').value = '';
+    document.getElementById('modal-model-type').value = 'LogisticRegression';
+
+    // Reset feature checkboxes
+    document.querySelectorAll('input[name="modal_feature_sets"]').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+    document.querySelectorAll('input[name="modal_features"]').forEach(cb => { cb.checked = false; });
+
+    // Reset C-values to defaults
+    document.querySelectorAll('input[name="modal_c_values"]').forEach(cb => {
+        cb.checked = (cb.value === '0.1' || cb.value === '1.0');
+    });
+
+    // Reset other fields
+    document.getElementById('modal-min-games-played').value = 15;
+    document.getElementById('modal-exclude-seasons').value = '';
+    document.getElementById('modal-use-time-calibration').checked = false;
+    document.getElementById('modal-calibration-options').style.display = 'none';
+    document.getElementById('modal-calibration-method').value = 'isotonic';
+    document.getElementById('modal-begin-year').value = 2007;
+    document.getElementById('modal-calibration-years').value = '2023';
+    document.getElementById('modal-evaluation-year').value = 2024;
+
+    // Update counts
+    document.querySelectorAll('#config-modal .modal-set-checkbox').forEach(cb => updateModalSetCheckboxState(cb.value));
+    updateModalCValuesVisibility();
+
+    document.getElementById('modal-save-btn').textContent = 'Create';
+    document.getElementById('config-modal').style.display = 'block';
+}
+
+function openEditModal(configId) {
+    const config = allHistoryConfigs.find(c => c._id === configId);
+    if (!config) { alert('Config not found'); return; }
+
+    document.getElementById('config-modal-title').textContent = 'Edit Config';
+    document.getElementById('modal-config-id').value = configId;
+    document.getElementById('modal-config-name').value = config.name || '';
+    document.getElementById('modal-model-type').value = config.model_type || 'LogisticRegression';
+
+    // Set feature checkboxes
+    document.querySelectorAll('input[name="modal_features"]').forEach(cb => {
+        cb.checked = config.features && config.features.includes(cb.value);
+    });
+
+    // Update set checkbox states
+    document.querySelectorAll('#config-modal .modal-set-checkbox').forEach(cb => updateModalSetCheckboxState(cb.value));
+
+    // Set C-values
+    let cValues = [];
+    if (config.c_values && Array.isArray(config.c_values)) {
+        cValues = config.c_values.map(v => parseFloat(v));
+    } else if (config.best_c_value != null) {
+        cValues = [parseFloat(config.best_c_value)];
+    }
+    document.querySelectorAll('input[name="modal_c_values"]').forEach(cb => {
+        cb.checked = cValues.includes(parseFloat(cb.value));
+    });
+
+    // Set other fields
+    document.getElementById('modal-min-games-played').value = config.min_games_played ?? 15;
+    document.getElementById('modal-exclude-seasons').value = (config.exclude_seasons && Array.isArray(config.exclude_seasons)) ? config.exclude_seasons.join(', ') : '';
+
+    // Calibration
+    const useCal = config.use_time_calibration || false;
+    document.getElementById('modal-use-time-calibration').checked = useCal;
+    document.getElementById('modal-calibration-options').style.display = useCal ? 'block' : 'none';
+    if (useCal) {
+        document.getElementById('modal-calibration-method').value = config.calibration_method || 'isotonic';
+        document.getElementById('modal-begin-year').value = config.begin_year || 2007;
+        const calYears = config.calibration_years || config.calibration_year;
+        document.getElementById('modal-calibration-years').value = Array.isArray(calYears) ? calYears.join(',') : (calYears || '2023');
+        document.getElementById('modal-evaluation-year').value = config.evaluation_year || 2024;
+    }
+
+    updateModalCValuesVisibility();
+    document.getElementById('modal-save-btn').textContent = 'Update';
+    document.getElementById('config-modal').style.display = 'block';
+}
+
+function closeConfigModal() {
+    document.getElementById('config-modal').style.display = 'none';
+}
+
+function getModalFormData() {
+    const name = document.getElementById('modal-config-name').value.trim();
+    const modelType = document.getElementById('modal-model-type').value;
+    const features = Array.from(document.querySelectorAll('input[name="modal_features"]:checked')).map(cb => cb.value);
+    const cValues = Array.from(document.querySelectorAll('input[name="modal_c_values"]:checked')).map(cb => parseFloat(cb.value));
+    const minGamesPlayed = parseInt(document.getElementById('modal-min-games-played').value) || 15;
+    const excludeSeasonsStr = document.getElementById('modal-exclude-seasons').value.trim();
+    const excludeSeasons = excludeSeasonsStr ? excludeSeasonsStr.split(',').map(s => parseInt(s.trim())).filter(s => !isNaN(s)) : null;
+    const useTimeCal = document.getElementById('modal-use-time-calibration').checked;
+
+    const data = { name, model_type: modelType, features, c_values: cValues, min_games_played: minGamesPlayed, exclude_seasons: excludeSeasons, use_time_calibration: useTimeCal };
+
+    if (useTimeCal) {
+        data.calibration_method = document.getElementById('modal-calibration-method').value;
+        data.begin_year = parseInt(document.getElementById('modal-begin-year').value) || null;
+        const calYearsStr = document.getElementById('modal-calibration-years').value;
+        data.calibration_years = calYearsStr ? calYearsStr.split(',').map(y => parseInt(y.trim())).filter(y => !isNaN(y)) : null;
+        data.evaluation_year = parseInt(document.getElementById('modal-evaluation-year').value) || null;
+    }
+
+    return data;
+}
+
+async function saveModal() {
+    const configId = document.getElementById('modal-config-id').value;
+    const data = getModalFormData();
+
+    if (!data.name) { alert('Please enter a config name.'); return; }
+    if (data.features.length === 0) { alert('Please select at least one feature.'); return; }
+
+    try {
+        let response;
+        if (configId) {
+            // Edit existing
+            response = await fetch(apiUrl(`/api/model-configs/${configId}`), {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+        } else {
+            // Create new
+            response = await fetch(apiUrl('/api/model-config/save'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+        }
+
+        const result = await response.json();
+        if (result.success) {
+            closeConfigModal();
+            loadHistory();
+            // Auto-train after creating a new config
+            const newConfigId = !configId && result.saved_configs?.[0]?.config_id;
+            if (newConfigId) {
+                trainConfig(newConfigId);
+            }
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function cloneConfig(configId) {
+    try {
+        const response = await fetch(apiUrl(`/api/model-configs/${configId}/clone`), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const data = await response.json();
+        if (data.success) {
+            loadHistory();
+        } else {
+            alert('Error cloning: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function trainConfig(configId) {
+    // Stop any existing polling
+    if (jobPollInterval) { clearInterval(jobPollInterval); jobPollInterval = null; }
+
+    // Show progress bar
+    const progressContainer = document.getElementById('job-progress-container');
+    const progressBar = document.getElementById('job-progress-bar');
+    const progressPercent = document.getElementById('job-progress-percent');
+    const progressMessage = document.getElementById('job-progress-message');
+    const jobError = document.getElementById('job-error');
+
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressPercent.textContent = '0%';
+    progressMessage.textContent = 'Initializing training (fresh from master CSV)...';
+    jobError.style.display = 'none';
+
+    try {
+        const response = await fetch(apiUrl('/api/model-config/train'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ config_id: configId })
+        });
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            progressContainer.style.display = 'none';
+            alert('Server returned non-JSON response.');
+            return;
+        }
+
+        if (!response.ok) {
+            progressContainer.style.display = 'none';
+            alert('Error: ' + (data.error || `Server error: ${response.status}`));
+            return;
+        }
+
+        if (data.success && data.job_id) {
+            currentJobId = data.job_id;
+            startJobPolling(currentJobId);
+        } else {
+            progressContainer.style.display = 'none';
+            alert('Training error: ' + (data.error || 'No job_id returned'));
+        }
+    } catch (error) {
+        progressContainer.style.display = 'none';
+        alert('Error: ' + error.message);
+    }
+}
+
+
+function applyFeatureSelectionFromModal() {
+    const input = document.getElementById('feature-names-input');
+    const clearAndReselect = document.getElementById('clear-and-reselect').checked;
+    const featureText = input.value.trim();
+
+    if (!featureText) { alert('Please enter at least one feature name.'); return; }
+
+    const featureNames = featureText.split(/[,\n]/).map(name => name.trim()).filter(name => name.length > 0);
+    if (featureNames.length === 0) { alert('No valid feature names found.'); return; }
+
+    // Use modal_features checkboxes
+    const allFeatureCheckboxes = document.querySelectorAll('input[name="modal_features"]');
+    const availableFeatureNames = Array.from(allFeatureCheckboxes).map(cb => cb.value);
+
+    const matchedFeatures = [];
+    const notFoundFeatures = [];
+    featureNames.forEach(inputName => {
+        const found = availableFeatureNames.find(n => n.toLowerCase() === inputName.toLowerCase());
+        if (found) matchedFeatures.push(found);
+        else notFoundFeatures.push(inputName);
+    });
+
+    if (notFoundFeatures.length > 0) {
+        alert(`Warning: ${notFoundFeatures.length} feature(s) not found: ${notFoundFeatures.slice(0, 5).join(', ')}${notFoundFeatures.length > 5 ? '...' : ''}`);
+    }
+    if (matchedFeatures.length === 0) { alert('No matching features found.'); return; }
+
+    if (clearAndReselect) {
+        allFeatureCheckboxes.forEach(cb => { cb.checked = false; });
+    }
+    allFeatureCheckboxes.forEach(cb => {
+        if (matchedFeatures.includes(cb.value)) cb.checked = true;
+    });
+
+    // Update set checkbox states in modal
+    document.querySelectorAll('#config-modal .modal-set-checkbox').forEach(setCb => {
+        updateModalSetCheckboxState(setCb.value);
+    });
+
+    document.getElementById('feature-selection-modal').style.display = 'none';
+    console.log(`Applied ${matchedFeatures.length} feature(s)`);
+}
+
+let currentJobId = null;
+let jobPollInterval = null;
+
+function startJobPolling(jobId) {
+    // Clear any existing interval
+    if (jobPollInterval) {
+        clearInterval(jobPollInterval);
+    }
+    
+    // Poll immediately, then every 3 seconds
+    pollJobStatus(jobId);
+    jobPollInterval = setInterval(() => {
+        pollJobStatus(jobId);
+    }, 3000);
+}
+
+async function pollJobStatus(jobId) {
+    try {
+        const response = await fetch(apiUrl(`/api/jobs/${jobId}`));
+        
+        if (!response.ok) {
+            console.error(`Failed to fetch job status: ${response.status}`);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success || !data.job) {
+            console.error('Invalid job status response:', data);
+            return;
+        }
+        
+        const job = data.job;
+        const progressContainer = document.getElementById('job-progress-container');
+        const progressBar = document.getElementById('job-progress-bar');
+        const progressPercent = document.getElementById('job-progress-percent');
+        const progressMessage = document.getElementById('job-progress-message');
+        const jobError = document.getElementById('job-error');
+        
+        // Update progress bar
+        const progress = job.progress || 0;
+        progressBar.style.width = `${progress}%`;
+        progressPercent.textContent = `${progress}%`;
+        
+        // Update message
+        if (job.message) {
+            progressMessage.textContent = job.message;
+        }
+        
+        // Handle job completion
+        if (job.status === 'completed') {
+            console.log('Job completed successfully');
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+            currentJobId = null;
+            
+            // Hide progress bar after a short delay
+            setTimeout(() => {
+                progressContainer.style.display = 'none';
+            }, 1000);
+            
+            // Reload history to show newly saved configs (which will be selected)
+            loadHistory();
+        } else if (job.status === 'failed') {
+            console.error('Job failed:', job.error);
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+            currentJobId = null;
+            
+            // Show error message
+            jobError.textContent = job.error || 'Training failed with unknown error';
+            jobError.style.display = 'block';
+            
+            // Keep progress bar visible to show error
+            // User can manually hide it or it will be hidden on next run
+        }
+        // If status is 'running', continue polling
+    } catch (error) {
+        console.error('Error polling job status:', error);
+    }
+}
+
+// History Management
+let historyPage = 1;
+const historyPageSize = 10;
+let allHistoryConfigs = [];
+let filteredAndSortedConfigs = [];
+
+async function loadHistory() {
+    const historyList = document.getElementById('history-list');
+    const historyLoading = document.getElementById('history-loading');
+    const historyPagination = document.getElementById('history-pagination');
+    
+    if (!historyList || !historyLoading) {
+        console.error('History elements not found');
+        return;
+    }
+    
+    historyLoading.style.display = 'block';
+    historyList.innerHTML = '';
+    
+    try {
+        console.log('Loading history from /api/model-configs...');
+        const response = await fetch(apiUrl('/api/model-configs'));
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('History API response:', data);
+        
+        if (data.success && data.configs) {
+            allHistoryConfigs = data.configs;
+            console.log(`Loaded ${allHistoryConfigs.length} configs`);
+            console.log('First config sample:', allHistoryConfigs[0]);
+
+            // Populate time config filter options
+            populateTimeConfigFilter();
+
+            // Verify historyList element is accessible
+            if (!historyList) {
+                console.error('historyList element is null after fetch!');
+                return;
+            }
+
+            // Apply filters and sorting, then display
+            applyFiltersAndSort();
+        } else {
+            console.warn('No configs in response:', data);
+            if (historyList) {
+                historyList.innerHTML = '<p class="results-placeholder">No history found.</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading history:', error);
+        historyList.innerHTML = `<p class="error">Error loading history: ${error.message}</p>`;
+    } finally {
+        historyLoading.style.display = 'none';
+    }
+}
+
+// Build a time config key from a config's time-based settings
+function getTimeConfigKey(config) {
+    if (!config.use_time_calibration) return null;
+    const method = config.calibration_method || 'N/A';
+    const beginYear = config.begin_year || 'N/A';
+    const calYears = Array.isArray(config.calibration_years)
+        ? config.calibration_years.join(',')
+        : (config.calibration_years || config.calibration_year || 'N/A');
+    const evalYear = config.evaluation_year || 'N/A';
+    const exclSeasons = config.exclude_seasons && Array.isArray(config.exclude_seasons) && config.exclude_seasons.length > 0
+        ? config.exclude_seasons.join(',')
+        : '';
+    return `${method}|${beginYear}|${calYears}|${evalYear}|${exclSeasons}`;
+}
+
+// Format a time config key for display
+function formatTimeConfigLabel(key) {
+    const parts = key.split('|');
+    const [method, beginYear, calYears, evalYear] = parts;
+    const exclSeasons = parts[4] || '';
+    let label = `${method} | Train:${beginYear} | Cal:${calYears} | Eval:${evalYear}`;
+    if (exclSeasons) label += ` | Excl:${exclSeasons}`;
+    return label;
+}
+
+// Populate the time config filter dropdown with unique combinations
+function populateTimeConfigFilter() {
+    const select = document.getElementById('filter-time-config');
+    if (!select) return;
+
+    // Collect unique time config combinations
+    const timeConfigs = new Set();
+    for (const config of allHistoryConfigs) {
+        const key = getTimeConfigKey(config);
+        if (key) timeConfigs.add(key);
+    }
+
+    // Sort and build options
+    const sortedKeys = Array.from(timeConfigs).sort();
+
+    // Clear existing options except "All"
+    select.innerHTML = '<option value="">All</option>';
+
+    for (const key of sortedKeys) {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = formatTimeConfigLabel(key);
+        select.appendChild(option);
+    }
+}
+
+function applyFiltersAndSort() {
+    // Reset to first page when filtering/sorting
+    historyPage = 1;
+
+    // Get filter values
+    const filterName = (document.getElementById('filter-name')?.value || '').trim().toLowerCase();
+    const filterModelType = document.getElementById('filter-model-type')?.value || '';
+    const filterCalibration = document.getElementById('filter-calibration')?.value || '';
+    const filterCalibrationMethod = document.getElementById('filter-calibration-method')?.value || '';
+    const filterTimeConfig = document.getElementById('filter-time-config')?.value || '';
+    const filterSelected = document.getElementById('filter-selected')?.value || '';
+    const filterInjuries = document.getElementById('filter-injuries')?.value || '';
+    const showEnsembles = document.getElementById('show-ensembles-toggle')?.checked || false;
+    const sortBy = document.getElementById('sort-by')?.value || 'trained_at_desc';
+
+    // Always pin the selected config at top regardless of sort option
+    const pinnedSelected = allHistoryConfigs.find(cfg => cfg && cfg.selected === true) || null;
+    const configsToFilter = allHistoryConfigs.filter(cfg => !pinnedSelected || cfg._id !== pinnedSelected._id);
+
+    // Apply filters
+    let filteredConfigs = configsToFilter.filter(config => {
+        // Name filter (case-insensitive substring match)
+        if (filterName && !(config.name || '').toLowerCase().includes(filterName)) {
+            return false;
+        }
+
+        // Ensemble filter - hide ensembles unless toggle is checked
+        if (!showEnsembles && config.ensemble === true) {
+            return false;
+        }
+
+        // Model type filter
+        if (filterModelType && config.model_type !== filterModelType) {
+            return false;
+        }
+
+        // Calibration filter
+        if (filterCalibration) {
+            const hasCalibration = config.use_time_calibration === true;
+            if (filterCalibration === 'true' && !hasCalibration) return false;
+            if (filterCalibration === 'false' && hasCalibration) return false;
+        }
+
+        // Calibration method filter
+        if (filterCalibrationMethod && config.calibration_method !== filterCalibrationMethod) {
+            return false;
+        }
+
+        // Time config filter (matches exact combo of method, begin_year, cal_years, eval_year)
+        if (filterTimeConfig) {
+            const configTimeKey = getTimeConfigKey(config);
+            if (configTimeKey !== filterTimeConfig) {
+                return false;
+            }
+        }
+
+        // Selected filter
+        if (filterSelected) {
+            const isSelected = config.selected === true;
+            if (filterSelected === 'true' && !isSelected) return false;
+            if (filterSelected === 'false' && isSelected) return false;
+        }
+
+        return true;
+    });
+
+    // Apply sorting
+    filteredConfigs.sort((a, b) => {
+        // Handle selected_first sort
+        if (sortBy === 'selected_first') {
+            if (a.selected && !b.selected) return -1;
+            if (!a.selected && b.selected) return 1;
+            // If both selected or both not, sort by date
+            const aDate = a.trained_at ? new Date(a.trained_at) : new Date(0);
+            const bDate = b.trained_at ? new Date(b.trained_at) : new Date(0);
+            return bDate - aDate;
+        }
+
+        // Date sorting
+        if (sortBy === 'trained_at_desc' || sortBy === 'trained_at_asc') {
+            const aDate = a.trained_at ? new Date(a.trained_at) : new Date(0);
+            const bDate = b.trained_at ? new Date(b.trained_at) : new Date(0);
+            return sortBy === 'trained_at_desc' ? bDate - aDate : aDate - bDate;
+        }
+
+        // Accuracy sorting
+        if (sortBy === 'accuracy_desc' || sortBy === 'accuracy_asc') {
+            const aAcc = a.accuracy !== null && a.accuracy !== undefined ? parseFloat(a.accuracy) : -Infinity;
+            const bAcc = b.accuracy !== null && b.accuracy !== undefined ? parseFloat(b.accuracy) : -Infinity;
+            return sortBy === 'accuracy_desc' ? bAcc - aAcc : aAcc - bAcc;
+        }
+
+        // Log loss sorting
+        if (sortBy === 'log_loss_asc' || sortBy === 'log_loss_desc') {
+            const aLL = a.log_loss !== null && a.log_loss !== undefined ? parseFloat(a.log_loss) : Infinity;
+            const bLL = b.log_loss !== null && b.log_loss !== undefined ? parseFloat(b.log_loss) : Infinity;
+            return sortBy === 'log_loss_asc' ? aLL - bLL : bLL - aLL;
+        }
+
+        // Brier score sorting
+        if (sortBy === 'brier_asc' || sortBy === 'brier_desc') {
+            const aBrier = a.brier_score !== null && a.brier_score !== undefined ? parseFloat(a.brier_score) : Infinity;
+            const bBrier = b.brier_score !== null && b.brier_score !== undefined ? parseFloat(b.brier_score) : Infinity;
+            return sortBy === 'brier_asc' ? aBrier - bBrier : bBrier - aBrier;
+        }
+
+        // Feature count sorting
+        if (sortBy === 'feature_count_desc' || sortBy === 'feature_count_asc') {
+            const aCount = a.feature_count || 0;
+            const bCount = b.feature_count || 0;
+            return sortBy === 'feature_count_desc' ? bCount - aCount : aCount - bCount;
+        }
+
+        return 0;
+    });
+
+    // Combine pinned selected (if present) with the sorted, filtered configs
+    if (pinnedSelected) {
+        filteredAndSortedConfigs = [pinnedSelected, ...filteredConfigs];
+    } else {
+        filteredAndSortedConfigs = filteredConfigs;
+    }
+
+    // Display the filtered and sorted results
+    displayHistoryPage();
+}
+
+function resetFiltersAndSort() {
+    document.getElementById('filter-name').value = '';
+    document.getElementById('filter-model-type').value = '';
+    document.getElementById('filter-calibration').value = '';
+    document.getElementById('filter-calibration-method').value = '';
+    document.getElementById('filter-time-config').value = '';
+    document.getElementById('filter-selected').value = '';
+    document.getElementById('filter-injuries').value = '';
+    document.getElementById('show-ensembles-toggle').checked = false;
+    document.getElementById('sort-by').value = 'trained_at_desc';
+    applyFiltersAndSort();
+}
+
+function displayHistoryPage() {
+    const historyList = document.getElementById('history-list');
+    const historyPagination = document.getElementById('history-pagination');
+    
+    if (!historyList) {
+        console.error('history-list element not found');
+        return;
+    }
+    
+    const startIdx = (historyPage - 1) * historyPageSize;
+    const endIdx = startIdx + historyPageSize;
+    const pageConfigs = filteredAndSortedConfigs.slice(startIdx, endIdx);
+    
+    console.log(`Displaying page ${historyPage}: ${pageConfigs.length} configs (total: ${filteredAndSortedConfigs.length})`);
+    
+    if (pageConfigs.length === 0) {
+        historyList.innerHTML = '<p class="results-placeholder">No history found.</p>';
+        historyPagination.style.display = 'none';
+        return;
+    }
+    
+    historyList.innerHTML = '';
+    
+    console.log(`About to create ${pageConfigs.length} history items`);
+    
+    pageConfigs.forEach((config, idx) => {
+        try {
+            console.log(`Creating history item ${idx + 1}/${pageConfigs.length}:`, {
+                _id: config._id,
+                name: config.name,
+                model_type: config.model_type,
+                accuracy: config.accuracy
+            });
+            const item = createHistoryItem(config);
+            if (item) {
+                console.log(`Appending item ${idx + 1} to historyList`);
+                historyList.appendChild(item);
+                console.log(`Item ${idx + 1} appended successfully. historyList.children.length:`, historyList.children.length);
+            } else {
+                console.error('createHistoryItem returned null for config:', config);
+            }
+        } catch (error) {
+            console.error('Error creating history item:', error, config);
+            console.error('Error stack:', error.stack);
+        }
+    });
+    
+    console.log(`Finished creating items. Total children in historyList:`, historyList.children.length);
+    
+    // Update pagination
+    const totalPages = Math.ceil(filteredAndSortedConfigs.length / historyPageSize);
+    updatePagination(totalPages);
+}
+
+function createHistoryItem(config) {
+    if (!config || !config._id) {
+        console.error('Invalid config:', config);
+        return null;
+    }
+    
+    const div = document.createElement('div');
+    div.className = `history-item ${config.selected ? 'selected' : ''}`;
+    div.dataset.configId = config._id;
+    
+    // Safely handle dates
+    let trainedDate = 'Unknown';
+    try {
+        if (config.trained_at) {
+            trainedDate = new Date(config.trained_at).toLocaleString();
+        }
+    } catch (e) {
+        console.warn('Error parsing trained_at:', e);
+    }
+    
+    // Safely escape config name for HTML
+    const configName = (config.name || 'Unnamed Config').replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+    
+    div.innerHTML = `
+        <div class="history-item-header">
+            <div class="history-item-name">
+                <span class="name-display" onclick="editConfigName('${config._id}', '${configName.replace(/'/g, "\\'")}')">${configName}</span>
+                ${config.selected ? '<span class="selected-badge">SELECTED</span>' : ''}
+            </div>
+            <div class="history-item-actions">
+                ${!config.ensemble ? `<input type="checkbox" class="ensemble-checkbox" data-config-id="${config._id}" title="Include in ensemble" style="margin-right: 8px;">` : ''}
+                ${!config.ensemble ? `<button class="btn btn-small" onclick="event.stopPropagation(); openEditModal('${config._id}')" title="Edit config settings">Edit</button>` : ''}
+                <button class="btn btn-small btn-train" onclick="event.stopPropagation(); trainConfig('${config._id}')" title="Train fresh from master CSV">Train</button>
+                ${!config.selected ? `<button class="btn btn-small" onclick="event.stopPropagation(); selectConfig('${config._id}')">Select</button>` : ''}
+                <button class="btn btn-small" onclick="event.stopPropagation(); cloneConfig('${config._id}')" title="Clone this config">Clone</button>
+                ${config.ensemble ? `<button class="btn btn-small" onclick="event.stopPropagation(); showEditEnsembleModal('${config._id}')" title="Edit meta-model features and retrain">Edit Meta</button>` : ''}
+                ${config.features_ranked && Array.isArray(config.features_ranked) && config.features_ranked.length > 0 ? `<button class="btn btn-small" onclick="event.stopPropagation(); showFeatureTree('${config._id}')">Feature Tree</button>` : ''}
+                ${config.training_csv ? `<a class="btn btn-small" href="/api/model-configs/${config._id}/download">Download CSV</a>` : ''}
+                <button class="btn btn-small btn-danger" onclick="event.stopPropagation(); deleteConfig('${config._id}')">Delete</button>
+                <button class="config-copy-btn" onclick="copyClassifierConfigToClipboard('${config._id}', this, event)" title="Copy config info">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M5 15H4C2.89543 15 2 14.1046 2 13V4C2 2.89543 2.89543 2 4 2H13C14.1046 2 15 2.89543 15 4V5" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                </button>
+                <span class="expand-icon" onclick="toggleHistoryItem(this)">▼</span>
+            </div>
+        </div>
+        <div class="history-item-meta">
+            <span><strong>Model:</strong> ${config.ensemble ? 'Ensemble (' + (config.model_type || 'LogisticRegression') + ')' : (config.model_type || 'Unknown')}</span>
+            ${config.ensemble ? `<span><strong>Base Models:</strong> ${config.ensemble_models ? config.ensemble_models.length : 0}</span>` : `<span><strong>Features:</strong> ${config.feature_count || 0}</span>`}
+            ${config.best_c_value !== null && config.best_c_value !== undefined ? `<span><strong>${config.ensemble ? 'Meta C' : 'Best C'}:</strong> ${config.best_c_value}</span>` : ''}
+            ${config.features && Array.isArray(config.features) && config.features.includes('pred_margin') ? `<span><strong>Point Features:</strong> Yes (pred_margin)</span>` : ''}
+            ${config.ensemble ? `<span><strong>Meta Features:</strong> ${formatEnsembleMetaFeatures(config)}</span>` : ''}
+            <span><strong>Min Games:</strong> ${config.min_games_played !== null && config.min_games_played !== undefined ? config.min_games_played : 'N/A'}</span>
+            ${config.exclude_seasons && Array.isArray(config.exclude_seasons) && config.exclude_seasons.length > 0 ? `<span><strong>Excluded:</strong> ${config.exclude_seasons.join(', ')}</span>` : ''}
+            <span><strong>Trained:</strong> ${trainedDate}</span>
+        </div>
+        <div class="history-item-metrics">
+            <div class="metric">
+                <div class="metric-label">Accuracy</div>
+                <div class="metric-value">${config.accuracy !== null && config.accuracy !== undefined ? (typeof config.accuracy === 'number' ? config.accuracy.toFixed(2) : config.accuracy) + '%' : 'N/A'}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Log Loss</div>
+                <div class="metric-value">${config.log_loss !== null && config.log_loss !== undefined ? (typeof config.log_loss === 'number' ? config.log_loss.toFixed(4) : config.log_loss) : 'N/A'}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Brier Score</div>
+                <div class="metric-value">${config.brier_score !== null && config.brier_score !== undefined ? (typeof config.brier_score === 'number' ? config.brier_score.toFixed(4) : config.brier_score) : 'N/A'}</div>
+            </div>
+            <button class="copy-metrics-btn" title="Copy metrics"
+                data-accuracy="${config.accuracy !== null && config.accuracy !== undefined ? (typeof config.accuracy === 'number' ? config.accuracy.toFixed(4) : config.accuracy) + '%' : 'N/A'}"
+                data-logloss="${config.log_loss !== null && config.log_loss !== undefined ? (typeof config.log_loss === 'number' ? config.log_loss.toFixed(6) : config.log_loss) : 'N/A'}"
+                data-brier="${config.brier_score !== null && config.brier_score !== undefined ? (typeof config.brier_score === 'number' ? config.brier_score.toFixed(6) : config.brier_score) : 'N/A'}"
+                onclick="copyMetrics(this)">&#x2398;</button>
+        </div>
+        <div class="history-item-details">
+            <div style="margin-top: 10px;">
+                <strong>Training Stats:</strong>
+                <ul style="margin: 5px 0; padding-left: 20px; font-size: 0.9em; color: #666;">
+                    <li>Games: ${config.training_stats && config.training_stats.total_games ? config.training_stats.total_games : 'N/A'}${config.training_stats && (config.training_stats.train_games || config.training_stats.calibration_games || config.training_stats.eval_games) ? ` (Train: ${config.training_stats.train_games ?? 'N/A'} | Cal: ${config.training_stats.calibration_games ?? 'N/A'} | Eval: ${config.training_stats.eval_games ?? 'N/A'})` : ''}</li>
+                    <li>Min Prior Games Per Team: ${config.min_games_played !== null && config.min_games_played !== undefined ? config.min_games_played : 'N/A'}</li>
+                    ${config.exclude_seasons && Array.isArray(config.exclude_seasons) && config.exclude_seasons.length > 0 ? `<li>Excluded Seasons: ${config.exclude_seasons.join(', ')}</li>` : ''}
+                    <li>Enhanced Features: ${config.training_stats && config.training_stats.include_enhanced_features ? 'Yes' : 'No'}</li>
+                    <li>Era Normalization: ${config.training_stats && config.training_stats.include_era_normalization ? 'Yes' : 'No'}</li>
+                    <li>PER Features: ${config.training_stats && config.training_stats.no_per ? 'Excluded' : 'Included'}</li>
+                    <li>Model-Specific: ${config.training_stats && config.training_stats.model_specific_features ? 'Yes' : 'No'}</li>
+                    ${config.features && Array.isArray(config.features) && config.features.includes('pred_margin') ? `<li>Point Prediction Features: <strong>Yes</strong> (pred_margin from master CSV)</li>` : '<li>Point Prediction Features: No</li>'}
+                        ${config.use_time_calibration ? `
+                        <li>Time-Based Calibration: <strong>Yes</strong></li>
+                        <li style="padding-left: 15px;">Method: ${config.calibration_method || 'N/A'}</li>
+                        <li style="padding-left: 15px;">Begin Year: ${config.begin_year || 'N/A'}</li>
+                        <li style="padding-left: 15px;">Calibration Years: ${Array.isArray(config.calibration_years) ? config.calibration_years.join(', ') : (config.calibration_years || config.calibration_year || 'N/A')}</li>
+                        <li style="padding-left: 15px;">Evaluation Year: ${config.evaluation_year || 'N/A'}</li>
+                    ` : '<li>Time-Based Calibration: No</li>'}
+                </ul>
+            </div>
+            ${config.ensemble ? `
+                <div style="margin-top: 12px;">
+                    ${renderTimeCalibrationBlock(config, 'Ensemble Time-Based Calibration (shared)')}
+                </div>
+            ` : ''}
+            ${config.ensemble ? renderEmbeddedBaseModelPanels(config) : ''}
+            ${config.model_type !== 'LogisticRegression' && config.features_ranked && Array.isArray(config.features_ranked) && config.features_ranked.length > 0 ? `
+                <div class="rated-features-section" style="margin-top: 15px;">
+                    <h5 style="display:flex; align-items:center; gap:6px;">Rated Features (by F-Score, ${config.features_ranked.length} total)
+                        <button type="button" class="config-copy-btn" onclick="event.stopPropagation(); copyRankedFeatures(this)" title="Copy rankings" data-rankings='${JSON.stringify(config.features_ranked).replace(/'/g, "&#39;")}'>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+                                <path d="M5 15H4C2.89543 15 2 14.1046 2 13V4C2 2.89543 2.89543 2 4 2H13C14.1046 2 15 2.89543 15 4V5" stroke="currentColor" stroke-width="2"/>
+                            </svg>
+                        </button>
+                    </h5>
+                    <div class="rated-features-list">
+                        ${config.features_ranked.map((f) => {
+                            const rank = f.rank || 0;
+                            const name = f.name || 'Unknown';
+                            const score = f.score !== null && f.score !== undefined ? (typeof f.score === 'number' ? f.score.toFixed(4) : f.score) : null;
+                            return `
+                                <div class="rated-feature-item">
+                                    <span class="feature-rank">${rank}.</span>
+                                    <span class="feature-name">${name}</span>
+                                    ${score !== null ? `<span class="feature-score">(${score})</span>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            ` : ''}
+            ${config.features_ranked_by_importance && Array.isArray(config.features_ranked_by_importance) && config.features_ranked_by_importance.length > 0 ? `
+                <div class="rated-features-section" style="margin-top: 15px;">
+                    <h5 style="display:flex; align-items:center; gap:6px;">Rated Features (by Importance Score, ${config.features_ranked_by_importance.length} total)
+                        <button type="button" class="config-copy-btn" onclick="event.stopPropagation(); copyRankedFeatures(this)" title="Copy rankings" data-rankings='${JSON.stringify(config.features_ranked_by_importance).replace(/'/g, "&#39;")}'>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+                                <path d="M5 15H4C2.89543 15 2 14.1046 2 13V4C2 2.89543 2.89543 2 4 2H13C14.1046 2 15 2.89543 15 4V5" stroke="currentColor" stroke-width="2"/>
+                            </svg>
+                        </button>
+                    </h5>
+                    <div class="rated-features-list">
+                        ${config.features_ranked_by_importance.map((f) => {
+                            const rank = f.rank || 0;
+                            const name = f.name || 'Unknown';
+                            const score = f.score !== null && f.score !== undefined ? (typeof f.score === 'number' ? f.score.toFixed(4) : f.score) : null;
+                            return `
+                                <div class="rated-feature-item">
+                                    <span class="feature-rank">${rank}.</span>
+                                    <span class="feature-name">${name}</span>
+                                    ${score !== null ? `<span class="feature-score">(${score})</span>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+    
+    return div;
+}
+
+function toggleHistoryItem(icon) {
+    const item = icon.closest('.history-item');
+    item.classList.toggle('expanded');
+}
+
+async function selectConfig(configId) {
+    try {
+        const response = await fetch(apiUrl(`/api/model-configs/${configId}`), {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({selected: true})
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            console.log('Config selected successfully');
+            await loadHistory();
+        } else {
+            console.error(`Error selecting config: ${data.error}`);
+            alert(`Error selecting config: ${data.error}`);
+        }
+    } catch (error) {
+        console.error(`Error: ${error.message}`);
+        alert(`Error: ${error.message}`);
+    }
+}
+
+
+function editConfigName(configId, currentName) {
+    const item = document.querySelector(`.history-item[data-config-id="${configId}"]`);
+    const nameDisplay = item.querySelector('.name-display');
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.style.width = '200px';
+    input.style.padding = '4px 8px';
+    input.style.border = '1px solid #667eea';
+    input.style.borderRadius = '4px';
+    
+    const saveName = async () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            try {
+                const response = await fetch(apiUrl(`/api/model-configs/${configId}`), {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: newName})
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    // Update in local array
+                    const config = allHistoryConfigs.find(c => c._id === configId);
+                    if (config) {
+                        config.name = newName;
+                    }
+                    // Reload history to show updated name
+                    displayHistoryPage();
+                    console.log('Config name updated');
+                } else {
+                    console.error(`Error updating name: ${data.error}`);
+                    alert(`Error updating name: ${data.error}`);
+                    nameDisplay.textContent = currentName;
+                }
+            } catch (error) {
+                console.error(`Error: ${error.message}`);
+                alert(`Error: ${error.message}`);
+                nameDisplay.textContent = currentName;
+            }
+        } else {
+            nameDisplay.textContent = currentName;
+        }
+        nameDisplay.style.display = '';
+        input.remove();
+    };
+    
+    input.addEventListener('blur', saveName);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            saveName();
+        } else if (e.key === 'Escape') {
+            nameDisplay.textContent = currentName;
+            nameDisplay.style.display = '';
+            input.remove();
+        }
+    });
+    
+    nameDisplay.style.display = 'none';
+    nameDisplay.parentNode.insertBefore(input, nameDisplay);
+    input.focus();
+    input.select();
+}
+
+function updatePagination(totalPages) {
+    const historyPagination = document.getElementById('history-pagination');
+    
+    if (totalPages <= 1) {
+        historyPagination.style.display = 'none';
+        return;
+    }
+    
+    historyPagination.style.display = 'flex';
+    
+    const startIdx = (historyPage - 1) * historyPageSize + 1;
+    const endIdx = Math.min(historyPage * historyPageSize, filteredAndSortedConfigs.length);
+    
+    historyPagination.innerHTML = `
+        <button class="pagination-btn" onclick="changeHistoryPage(${historyPage - 1})" ${historyPage === 1 ? 'disabled' : ''}>Previous</button>
+        <span class="pagination-info">Page ${historyPage} of ${totalPages} (${startIdx}-${endIdx} of ${filteredAndSortedConfigs.length})</span>
+        <button class="pagination-btn" onclick="changeHistoryPage(${historyPage + 1})" ${historyPage === totalPages ? 'disabled' : ''}>Next</button>
+    `;
+}
+
+function changeHistoryPage(newPage) {
+    const totalPages = Math.ceil(filteredAndSortedConfigs.length / historyPageSize);
+    if (newPage >= 1 && newPage <= totalPages) {
+        historyPage = newPage;
+        displayHistoryPage();
+    }
+}
+
+async function deleteConfig(configId) {
+    if (!confirm('Are you sure you want to delete this configuration? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(apiUrl(`/api/model-configs/${configId}`), {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            console.log('Config deleted successfully');
+            // Remove from local array
+            allHistoryConfigs = allHistoryConfigs.filter(c => c._id !== configId);
+            // Reload history to refresh the display
+            loadHistory();
+        } else {
+            console.error(`Error deleting config: ${data.error}`);
+            alert(`Error deleting config: ${data.error}`);
+        }
+    } catch (error) {
+        console.error(`Error: ${error.message}`);
+        alert(`Error: ${error.message}`);
+    }
+}
+
+// Copy config info to clipboard
+function copyClassifierConfigToClipboard(configId, button, event) {
+    event.stopPropagation();
+
+    const config = allHistoryConfigs.find(c => c._id === configId);
+    if (!config) {
+        alert('Config not found');
+        return;
+    }
+
+    let trainedDate = 'Unknown';
+    try {
+        if (config.trained_at) {
+            trainedDate = new Date(config.trained_at).toLocaleString();
+        }
+    } catch (e) {}
+
+    let text = `=== Classification Model Configuration ===\n\n`;
+    text += `Name: ${config.name || 'Unnamed'}\n`;
+    text += `Selected: ${config.selected ? 'Yes' : 'No'}\n`;
+
+    if (config.ensemble) {
+        text += `Model: Ensemble (${config.model_type || 'LogisticRegression'})\n`;
+        text += `Base Models: ${config.ensemble_models ? config.ensemble_models.length : 0}\n`;
+        if (config.best_c_value !== null && config.best_c_value !== undefined) {
+            text += `Meta C-Value: ${config.best_c_value}\n`;
+        }
+        text += `Meta Features: ${formatEnsembleMetaFeatures(config)}\n`;
+    } else {
+        text += `Model Type: ${config.model_type || 'Unknown'}\n`;
+        text += `Features: ${config.feature_count || 0}\n`;
+        if (config.best_c_value !== null && config.best_c_value !== undefined) {
+            text += `Best C: ${config.best_c_value}\n`;
+        }
+    }
+    text += `Trained: ${trainedDate}\n\n`;
+
+    text += `--- Metrics ---\n`;
+    text += `Accuracy: ${config.accuracy !== null && config.accuracy !== undefined ? (typeof config.accuracy === 'number' ? config.accuracy.toFixed(4) : config.accuracy) + '%' : 'N/A'}\n`;
+    text += `Log Loss: ${config.log_loss !== null && config.log_loss !== undefined ? (typeof config.log_loss === 'number' ? config.log_loss.toFixed(6) : config.log_loss) : 'N/A'}\n`;
+    text += `Brier Score: ${config.brier_score !== null && config.brier_score !== undefined ? (typeof config.brier_score === 'number' ? config.brier_score.toFixed(6) : config.brier_score) : 'N/A'}\n\n`;
+
+    text += `--- Training Stats ---\n`;
+    const ts = config.training_stats || {};
+    text += `Games: ${ts.total_games || 'N/A'}${ts.train_games || ts.calibration_games || ts.eval_games ? ` (Train: ${ts.train_games ?? 'N/A'} | Cal: ${ts.calibration_games ?? 'N/A'} | Eval: ${ts.eval_games ?? 'N/A'})` : ''}\n`;
+    text += `Enhanced Features: ${ts.include_enhanced_features ? 'Yes' : 'No'}\n`;
+    text += `Era Normalization: ${ts.include_era_normalization ? 'Yes' : 'No'}\n`;
+    text += `PER Features: ${ts.no_per ? 'Excluded' : 'Included'}\n`;
+    text += `Model-Specific: ${ts.model_specific_features ? 'Yes' : 'No'}\n`;
+    text += `Point Prediction Features: ${config.features && Array.isArray(config.features) && config.features.includes('pred_margin') ? 'Yes (pred_margin)' : 'No'}\n\n`;
+
+    if (config.use_time_calibration) {
+        text += `--- Time-Based Calibration ---\n`;
+        text += `Enabled: Yes\n`;
+        text += `Method: ${config.calibration_method || 'N/A'}\n`;
+        text += `Begin Year: ${config.begin_year || 'N/A'}\n`;
+        text += `Calibration Years: ${Array.isArray(config.calibration_years) ? config.calibration_years.join(', ') : (config.calibration_years || config.calibration_year || 'N/A')}\n`;
+        text += `Evaluation Year: ${config.evaluation_year || 'N/A'}\n`;
+        if (config.exclude_seasons && Array.isArray(config.exclude_seasons) && config.exclude_seasons.length > 0) {
+            text += `Excluded Seasons: ${config.exclude_seasons.join(', ')}\n`;
+        }
+        text += `\n`;
+    }
+
+    // Ensemble base models
+    if (config.ensemble && config.ensemble_models && config.ensemble_models.length > 0) {
+        text += `--- Base Models ---\n`;
+        config.ensemble_models.forEach((baseModelId, idx) => {
+            const baseConfig = allHistoryConfigs.find(c => c._id === baseModelId);
+            if (baseConfig) {
+                text += `\n[Base Model ${idx + 1}] ${baseConfig.name || 'Unnamed'}\n`;
+                text += `  Model Type: ${baseConfig.model_type || 'Unknown'}\n`;
+                text += `  Features: ${baseConfig.feature_count || 0}\n`;
+                text += `  Accuracy: ${baseConfig.accuracy !== null && baseConfig.accuracy !== undefined ? (typeof baseConfig.accuracy === 'number' ? baseConfig.accuracy.toFixed(4) : baseConfig.accuracy) + '%' : 'N/A'}\n`;
+                text += `  Log Loss: ${baseConfig.log_loss !== null && baseConfig.log_loss !== undefined ? (typeof baseConfig.log_loss === 'number' ? baseConfig.log_loss.toFixed(6) : baseConfig.log_loss) : 'N/A'}\n`;
+                text += `  Brier Score: ${baseConfig.brier_score !== null && baseConfig.brier_score !== undefined ? (typeof baseConfig.brier_score === 'number' ? baseConfig.brier_score.toFixed(6) : baseConfig.brier_score) : 'N/A'}\n`;
+                if (baseConfig.best_c_value !== null && baseConfig.best_c_value !== undefined) {
+                    text += `  Best C: ${baseConfig.best_c_value}\n`;
+                }
+            } else {
+                text += `\n[Base Model ${idx + 1}] ID: ${baseModelId} (not found)\n`;
+            }
+        });
+        text += `\n`;
+    }
+
+    // Feature rankings by F-Score with Importance scores on the same line
+    // (skip F-scores for LogisticRegression — they use L1/L2, not univariate selection)
+    const isLR = config.model_type === 'LogisticRegression';
+    if (!isLR && config.features_ranked && Array.isArray(config.features_ranked) && config.features_ranked.length > 0) {
+        // Build a lookup map for importance scores by feature name
+        const importanceMap = {};
+        if (config.features_ranked_by_importance && Array.isArray(config.features_ranked_by_importance)) {
+            config.features_ranked_by_importance.forEach(f => {
+                if (f.name) {
+                    importanceMap[f.name] = f.score;
+                }
+            });
+        }
+
+        text += `--- Feature Rankings (ordered by F-Score, ${config.features_ranked.length} total) ---\n`;
+        config.features_ranked.forEach((f) => {
+            const rank = f.rank || 0;
+            const name = f.name || 'Unknown';
+            const fScore = f.score !== null && f.score !== undefined ? (typeof f.score === 'number' ? f.score.toFixed(6) : f.score) : null;
+            const importance = importanceMap[name];
+            const importanceStr = importance !== null && importance !== undefined ? (typeof importance === 'number' ? importance.toFixed(6) : importance) : null;
+
+            let line = `${rank.toString().padStart(3, ' ')}. ${name}`;
+            if (fScore !== null) {
+                line += ` (F-Score: ${fScore})`;
+            }
+            if (importanceStr !== null) {
+                line += ` (Importance: ${importanceStr})`;
+            }
+            text += line + `\n`;
+        });
+        text += `\n`;
+    }
+
+    // Model path
+    if (config.model_path) {
+        text += `--- Model Files ---\n`;
+        text += `Model Path: ${config.model_path}\n`;
+    }
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(text).then(() => {
+        // Visual feedback
+        button.classList.add('copied');
+        setTimeout(() => {
+            button.classList.remove('copied');
+        }, 1500);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyRankedFeatures(button) {
+    const arr = JSON.parse(button.dataset.rankings || '[]');
+    const text = arr.map(f => {
+        const rank = f.rank || 0;
+        const name = f.name || 'Unknown';
+        const score = f.score !== null && f.score !== undefined
+            ? (typeof f.score === 'number' ? f.score.toFixed(4) : f.score) : '';
+        return score ? `${rank}. ${name} (${score})` : `${rank}. ${name}`;
+    }).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        button.classList.add('copied');
+        setTimeout(() => button.classList.remove('copied'), 1500);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+// Feature Tree Modal Functions
+function showFeatureTree(configId) {
+    const config = allHistoryConfigs.find(c => c._id === configId);
+    if (!config || !config.features_ranked || !Array.isArray(config.features_ranked) || config.features_ranked.length === 0) {
+        alert('No feature rankings available for this configuration.');
+        return;
+    }
+
+    // Build feature tree
+    const tree = buildFeatureTree(config.features_ranked);
+
+    // Display modal
+    const modal = document.getElementById('feature-tree-modal');
+    const modalContent = document.getElementById('feature-tree-content');
+    modalContent.innerHTML = '';
+    
+    // Add title and summary
+    const title = document.createElement('h2');
+    title.textContent = `Feature Tree: ${config.name || 'Unnamed Config'}`;
+    title.style.marginBottom = '10px';
+    modalContent.appendChild(title);
+    
+    const summary = document.createElement('div');
+    summary.className = 'feature-tree-summary';
+    summary.innerHTML = `
+        <div>
+            <strong>Total Features:</strong> ${config.features_ranked.length} |
+            <strong>Score Range:</strong> ${tree.minScore.toFixed(4)} - ${tree.maxScore.toFixed(4)} |
+            <strong>Color:</strong> <span style="background: rgb(34, 197, 94); padding: 2px 8px; border-radius: 3px; color: white;">High</span> →
+            <span style="background: rgb(234, 179, 8); padding: 2px 8px; border-radius: 3px;">Medium</span> →
+            <span style="background: rgb(239, 68, 68); padding: 2px 8px; border-radius: 3px; color: white;">Low</span>
+        </div>
+    `;
+    summary.style.marginBottom = '20px';
+    summary.style.padding = '10px';
+    summary.style.background = '#f0f0f0';
+    summary.style.borderRadius = '4px';
+    modalContent.appendChild(summary);
+    
+    // Add tree visualization
+    const treeContainer = document.createElement('div');
+    treeContainer.className = 'feature-tree-container';
+    renderFeatureTree(tree, treeContainer);
+    modalContent.appendChild(treeContainer);
+    
+    modal.style.display = 'block';
+}
+
+function closeFeatureTreeModal() {
+    document.getElementById('feature-tree-modal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('feature-tree-modal');
+    if (event.target === modal) {
+        closeFeatureTreeModal();
+    }
+}
+
+// Handle close button click (using event delegation)
+document.addEventListener('click', function(event) {
+    if (event.target && event.target.id === 'feature-tree-modal-close') {
+        closeFeatureTreeModal();
+    }
+});
+
+function buildFeatureTree(featuresRanked) {
+    const tree = {};
+    
+    // Get min/max scores for normalization
+    const scores = featuresRanked.map(f => f.score || 0).filter(s => s !== null && s !== undefined);
+    const minScore = Math.min(...scores);
+    const maxScore = Math.max(...scores);
+    const scoreRange = maxScore - minScore || 1;
+    
+    featuresRanked.forEach(feature => {
+        const name = feature.name || '';
+        const score = feature.score || 0;
+        const rank = feature.rank || 0;
+        
+        // Parse feature name: stat_name|time_period|calc_weight|scope[|side]
+        if (!name.includes('|')) {
+            // Old format or special feature - put in special category
+            if (!tree['_special']) {
+                tree['_special'] = { type: 'stat', children: {} };
+            }
+            if (!tree['_special'].children['_other']) {
+                tree['_special'].children['_other'] = { type: 'variant', children: {} };
+            }
+            if (!tree['_special'].children['_other'].children['_none']) {
+                tree['_special'].children['_other'].children['_none'] = { type: 'time_period', children: {} };
+            }
+            if (!tree['_special'].children['_other'].children['_none'].children['_none']) {
+                tree['_special'].children['_other'].children['_none'].children['_none'] = { type: 'calc_weight', children: {} };
+            }
+            if (!tree['_special'].children['_other'].children['_none'].children['_none'].children['_none']) {
+                tree['_special'].children['_other'].children['_none'].children['_none'] = { type: 'scope', children: {}, features: [] };
+            }
+            tree['_special'].children['_other'].children['_none'].children['_none'].children['_none'].features.push({ name, score, rank, normalizedScore: (score - minScore) / scoreRange });
+            return;
+        }
+        
+        const parts = name.split('|');
+        const statName = parts[0] || '_unknown';
+        const timePeriod = parts[1] || '_none';
+        const calcWeight = parts[2] || '_none';
+        const scope = parts[3] || '_none';
+        const side = parts[4] || null;
+        
+        // Determine variant (absolute vs net)
+        const variant = statName.includes('_net') ? 'net' : 'absolute';
+        const baseStatName = statName.replace('_net', '');
+        
+        // Initialize tree structure
+        if (!tree[baseStatName]) {
+            tree[baseStatName] = { type: 'stat', children: {} };
+        }
+        
+        if (!tree[baseStatName].children[variant]) {
+            tree[baseStatName].children[variant] = { type: 'variant', children: {} };
+        }
+        
+        if (!tree[baseStatName].children[variant].children[timePeriod]) {
+            tree[baseStatName].children[variant].children[timePeriod] = { type: 'time_period', children: {} };
+        }
+        
+        // Handle weighted calc_weights (e.g., weighted_MPG -> weighted with child MPG)
+        let calcWeightKey = calcWeight;
+        let calcWeightParent = tree[baseStatName].children[variant].children[timePeriod];
+        
+        if (calcWeight.startsWith('weighted_')) {
+            const weightType = calcWeight.replace('weighted_', '');
+            if (!calcWeightParent.children['weighted']) {
+                calcWeightParent.children['weighted'] = { type: 'calc_weight', children: {} };
+            }
+            calcWeightParent = calcWeightParent.children['weighted'];
+            calcWeightKey = weightType;
+        }
+        
+        if (!calcWeightParent.children[calcWeightKey]) {
+            calcWeightParent.children[calcWeightKey] = { type: 'calc_weight', children: {} };
+        }
+        
+        // Scope (diff emphasized, home/away secondary)
+        const scopeKey = scope === 'diff' ? 'diff' : scope;
+        if (!calcWeightParent.children[calcWeightKey].children[scopeKey]) {
+            calcWeightParent.children[calcWeightKey].children[scopeKey] = { type: 'scope', children: {}, features: [] };
+        }
+        
+        // Side (optional)
+        const finalParent = calcWeightParent.children[calcWeightKey].children[scopeKey];
+        if (side) {
+            if (!finalParent.children[side]) {
+                finalParent.children[side] = { type: 'side', features: [] };
+            }
+            finalParent.children[side].features.push({ name, score, rank, normalizedScore: (score - minScore) / scoreRange });
+        } else {
+            finalParent.features.push({ name, score, rank, normalizedScore: (score - minScore) / scoreRange });
+        }
+    });
+    
+    return { tree, minScore, maxScore };
+}
+
+function renderFeatureTree(treeData, container) {
+    const { tree, minScore, maxScore } = treeData;
+    
+    // Set up horizontal scrolling container
+    container.style.display = 'flex';
+    container.style.flexDirection = 'row';
+    container.style.overflowX = 'auto';
+    container.style.overflowY = 'hidden';
+    container.style.width = '100%';
+    container.style.gap = '10px';
+    
+    // Sort stats by total feature count (most features first)
+    const statEntries = Object.entries(tree).sort((a, b) => {
+        const countA = countFeaturesInBranch(a[1]);
+        const countB = countFeaturesInBranch(b[1]);
+        return countB - countA;
+    });
+    
+    statEntries.forEach(([statName, statNode]) => {
+        if (statName === '_special') return; // Handle special separately
+        
+        // Skip stats with no features
+        if (countFeaturesInBranch(statNode) === 0) return;
+        
+        // Create column for this stat
+        const statColumn = document.createElement('div');
+        statColumn.className = 'feature-stat-column';
+        statColumn.style.width = '25%';
+        statColumn.style.minWidth = '300px';
+        statColumn.style.flexShrink = '0';
+        
+        // Stat header
+        const statHeader = document.createElement('div');
+        statHeader.className = 'feature-stat-header';
+        statHeader.textContent = statName;
+        statColumn.appendChild(statHeader);
+        
+        // Collect features for this stat in tree order
+        const featuresInOrder = [];
+        
+        // Variants (absolute vs net)
+        const variantEntries = Object.entries(statNode.children || {}).sort((a, b) => {
+            // Prefer 'net' first, then 'absolute'
+            if (a[0] === 'net') return -1;
+            if (b[0] === 'net') return 1;
+            return a[0].localeCompare(b[0]);
+        });
+        
+        variantEntries.forEach(([variantName, variantNodeData]) => {
+            // Skip variants with no features
+            if (countFeaturesInBranch(variantNodeData) === 0) return;
+            
+            // Time periods
+            const timePeriodEntries = Object.entries(variantNodeData.children || {}).sort();
+            timePeriodEntries.forEach(([timePeriodName, timePeriodNodeData]) => {
+                // Skip time periods with no features
+                if (countFeaturesInBranch(timePeriodNodeData) === 0) return;
+                
+                // Calc weights
+                const calcWeightEntries = Object.entries(timePeriodNodeData.children || {}).sort();
+                calcWeightEntries.forEach(([calcWeightName, calcWeightNodeData]) => {
+                    // Skip calc weights with no features
+                    if (countFeaturesInBranch(calcWeightNodeData) === 0) return;
+                    
+                    // Scopes (diff emphasized)
+                    const scopeEntries = Object.entries(calcWeightNodeData.children || {}).sort((a, b) => {
+                        // Emphasize diff - put it first
+                        if (a[0] === 'diff') return -1;
+                        if (b[0] === 'diff') return 1;
+                        return a[0].localeCompare(b[0]);
+                    });
+                    
+                    scopeEntries.forEach(([scopeName, scopeNodeData]) => {
+                        // Direct features (no side)
+                        if (scopeNodeData.features && scopeNodeData.features.length > 0) {
+                            scopeNodeData.features.forEach(feature => {
+                                featuresInOrder.push(feature);
+                            });
+                        }
+                        
+                        // Side children (optional)
+                        if (scopeNodeData.children) {
+                            const sideEntries = Object.entries(scopeNodeData.children).sort();
+                            sideEntries.forEach(([sideName, sideNodeData]) => {
+                                if (sideNodeData.features && sideNodeData.features.length > 0) {
+                                    sideNodeData.features.forEach(feature => {
+                                        featuresInOrder.push(feature);
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+            });
+        });
+        
+        // Render features in this column
+        featuresInOrder.forEach(feature => {
+            const featureItem = createFeatureListItem(feature, minScore, maxScore);
+            statColumn.appendChild(featureItem);
+        });
+        
+        container.appendChild(statColumn);
+    });
+}
+
+function createFeatureListItem(feature, minScore, maxScore) {
+    const item = document.createElement('div');
+    item.className = 'feature-list-item';
+    item.dataset.featureName = feature.name;
+    item.title = `Rank: ${feature.rank || 'N/A'}\nScore: ${feature.score !== null && feature.score !== undefined ? feature.score.toFixed(4) : 'N/A'}`;
+
+    const normalized = feature.normalizedScore || 0;
+    let red, green, blue;
+    if (normalized >= 0.5) {
+        const t = (normalized - 0.5) * 2;
+        red = Math.round(34 + (234 - 34) * (1 - t));
+        green = Math.round(197 + (179 - 197) * (1 - t));
+        blue = Math.round(94 + (8 - 94) * (1 - t));
+    } else {
+        const t = normalized * 2;
+        red = Math.round(234 + (239 - 234) * (1 - t));
+        green = Math.round(179 + (68 - 179) * (1 - t));
+        blue = Math.round(8 + (68 - 8) * (1 - t));
+    }
+    item.style.backgroundColor = `rgb(${red}, ${green}, ${blue})`;
+    item.style.color = normalized > 0.6 ? 'white' : 'black';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'feature-list-item-name';
+    nameSpan.textContent = feature.name;
+    item.appendChild(nameSpan);
+
+    const scoreSpan = document.createElement('span');
+    scoreSpan.className = 'feature-list-item-score';
+    scoreSpan.textContent = feature.score !== null && feature.score !== undefined ? feature.score.toFixed(4) : 'N/A';
+    item.appendChild(scoreSpan);
+
+    return item;
+}
+
+
+function countFeaturesInBranch(node) {
+    let count = 0;
+    if (node.features) {
+        count += node.features.length;
+    }
+    if (node.children) {
+        Object.values(node.children).forEach(child => {
+            count += countFeaturesInBranch(child);
+        });
+    }
+    return count;
+}
+
+function toggleTreeBranch(header) {
+    const content = header.nextElementSibling;
+    if (content && (
+        content.classList.contains('feature-tree-stat-content') || 
+        content.classList.contains('feature-tree-variant-content') ||
+        content.classList.contains('feature-tree-time-period-content') ||
+        content.classList.contains('feature-tree-calc-weight-content') ||
+        content.classList.contains('feature-tree-scope-content') ||
+        content.classList.contains('feature-tree-side-content')
+    )) {
+        content.style.display = content.style.display === 'none' ? 'block' : 'none';
+        header.classList.toggle('expanded', content.style.display !== 'none');
+    }
+}
+
+
+function createEnsemble() {
+    // Get all checked ensemble checkboxes
+    const checkedBoxes = document.querySelectorAll('.ensemble-checkbox:checked');
+    const selectedConfigIds = Array.from(checkedBoxes).map(cb => cb.dataset.configId);
+
+    if (selectedConfigIds.length < 2) {
+        alert('Please select at least 2 models to create an ensemble.');
+        return;
+    }
+
+    // Collect meta features configuration
+    const ensembleMetaFeatures = collectEnsembleMetaFeatures();
+
+    // Show loading state
+    const createBtn = document.getElementById('create-ensemble-btn');
+    const originalText = createBtn.textContent;
+    createBtn.textContent = 'Creating Ensemble...';
+    createBtn.disabled = true;
+
+    // Call API to create ensemble
+    fetch(apiUrl('/api/model-configs/create-ensemble'), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ensemble_models: selectedConfigIds,
+            ensemble_type: 'stacking',
+            ensemble_meta_features: ensembleMetaFeatures.custom_features,
+            ensemble_use_disagree: ensembleMetaFeatures.use_disagree,
+            ensemble_use_conf: ensembleMetaFeatures.use_conf,
+            ensemble_use_logit: ensembleMetaFeatures.use_logit,
+            name: document.getElementById('ensemble-name').value.trim() || undefined
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Ensemble created successfully!');
+            // Reload history to show new ensemble
+            loadHistory();
+            // Clear all ensemble checkboxes
+            document.querySelectorAll('.ensemble-checkbox').forEach(cb => cb.checked = false);
+            // Hide ensemble config section
+            document.getElementById('ensemble-config-section').style.display = 'none';
+        } else {
+            alert('Error creating ensemble: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error creating ensemble:', error);
+        alert('Error creating ensemble: ' + error.message);
+    })
+    .finally(() => {
+        // Restore button state
+        createBtn.textContent = originalText;
+        createBtn.disabled = false;
+    });
+}
+
+function collectEnsembleMetaFeatures() {
+    const useDisagree = document.getElementById('ensemble-use-disagree').checked;
+    const useConf = document.getElementById('ensemble-use-conf').checked;
+    const useLogit = document.getElementById('ensemble-use-logit').checked;
+    const customFeaturesText = document.getElementById('ensemble-custom-features').value.trim();
+
+    // Parse custom features (comma-separated)
+    const customFeatures = customFeaturesText
+        .split(',')
+        .map(f => f.trim())
+        .filter(f => f.length > 0);
+
+    return {
+        use_disagree: useDisagree,
+        use_conf: useConf,
+        use_logit: useLogit,
+        custom_features: customFeatures
+    };
+}
+
+function updateEnsembleMetaSummary() {
+    const metaFeatures = collectEnsembleMetaFeatures();
+    const summaryText = [];
+
+    if (metaFeatures.use_disagree) {
+        summaryText.push('Disagreement features (disagree_*)');
+    }
+    if (metaFeatures.use_conf) {
+        summaryText.push('Confidence features (conf_*)');
+    }
+    if (metaFeatures.use_logit) {
+        summaryText.push('Log-odds transform (p_* → logit)');
+    }
+    if (metaFeatures.custom_features.length > 0) {
+        summaryText.push('Custom: ' + metaFeatures.custom_features.join(', '));
+    }
+
+    const summaryDiv = document.getElementById('ensemble-meta-summary');
+    const summaryTextSpan = document.getElementById('ensemble-meta-summary-text');
+
+    if (summaryText.length > 0) {
+        summaryTextSpan.textContent = summaryText.join(' | ');
+        summaryDiv.style.display = 'block';
+    } else {
+        summaryTextSpan.textContent = 'None selected';
+        summaryDiv.style.display = 'block';
+    }
+}
+
+function updateEnsembleConfigVisibility() {
+    const checkedBoxes = document.querySelectorAll('.ensemble-checkbox:checked');
+    const ensembleConfigSection = document.getElementById('ensemble-config-section');
+
+    if (checkedBoxes.length >= 2) {
+        ensembleConfigSection.style.display = 'block';
+    } else {
+        ensembleConfigSection.style.display = 'none';
+    }
+}
+
+function formatEnsembleMetaFeatures(config) {
+    const parts = [];
+
+    // Check for disagree features
+    if (config.ensemble_use_disagree) {
+        parts.push('disagree_*');
+    }
+
+    // Check for conf features
+    if (config.ensemble_use_conf) {
+        parts.push('conf_*');
+    }
+
+    // Log-odds transform: p_* shown as log-odds when enabled
+    if (config.ensemble_use_logit) {
+        parts.push('logit(p_*)');
+    }
+
+    // Check for custom features
+    if (config.ensemble_meta_features && config.ensemble_meta_features.length > 0) {
+        parts.push(config.ensemble_meta_features.join(', '));
+    }
+
+    return parts.length > 0 ? parts.join(' | ') : 'None';
+}
+
+// ============================================================
+// Edit Ensemble Meta Features
+// ============================================================
+
+let currentEditEnsembleId = null;
+
+function showEditEnsembleModal(ensembleId) {
+    currentEditEnsembleId = ensembleId;
+
+    // Find the ensemble config from loaded data
+    const config = allHistoryConfigs?.find(c => c._id === ensembleId);
+    if (!config) {
+        alert('Ensemble config not found');
+        return;
+    }
+
+    // Pre-populate the form
+    document.getElementById('edit-ensemble-name').value = config.name || '';
+    document.getElementById('edit-ensemble-use-disagree').checked = config.ensemble_use_disagree || false;
+    document.getElementById('edit-ensemble-use-conf').checked = config.ensemble_use_conf || false;
+    document.getElementById('edit-ensemble-use-logit').checked = config.ensemble_use_logit || false;
+    document.getElementById('edit-ensemble-custom-features').value =
+        (config.ensemble_meta_features || []).join(', ');
+
+    // Show current meta-model type
+    document.getElementById('edit-ensemble-meta-model-type').value = config.model_type || 'LogisticRegression';
+
+    // Update the summary
+    updateEditEnsembleMetaSummary();
+
+    // Show the modal
+    document.getElementById('edit-ensemble-modal').style.display = 'flex';
+}
+
+function closeEditEnsembleModal() {
+    document.getElementById('edit-ensemble-modal').style.display = 'none';
+    currentEditEnsembleId = null;
+}
+
+function updateEditEnsembleMetaSummary() {
+    const useDisagree = document.getElementById('edit-ensemble-use-disagree').checked;
+    const useConf = document.getElementById('edit-ensemble-use-conf').checked;
+    const useLogit = document.getElementById('edit-ensemble-use-logit').checked;
+    const customText = document.getElementById('edit-ensemble-custom-features').value.trim();
+    const customFeatures = customText.split(',').map(f => f.trim()).filter(f => f.length > 0);
+
+    const parts = [];
+    if (useDisagree) parts.push('Disagreement (disagree_*)');
+    if (useConf) parts.push('Confidence (conf_*)');
+    if (useLogit) parts.push('Log-odds transform (p_* → logit)');
+    if (customFeatures.length > 0) parts.push('Custom: ' + customFeatures.join(', '));
+
+    const summaryEl = document.getElementById('edit-ensemble-meta-summary-text');
+    summaryEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Base model outputs only (p_*)';
+}
+
+async function submitEditEnsemble() {
+    if (!currentEditEnsembleId) {
+        alert('No ensemble selected');
+        return;
+    }
+
+    const useDisagree = document.getElementById('edit-ensemble-use-disagree').checked;
+    const useConf = document.getElementById('edit-ensemble-use-conf').checked;
+    const useLogit = document.getElementById('edit-ensemble-use-logit').checked;
+    const customText = document.getElementById('edit-ensemble-custom-features').value.trim();
+    const customFeatures = customText.split(',').map(f => f.trim()).filter(f => f.length > 0);
+    const metaModelType = document.getElementById('edit-ensemble-meta-model-type').value;
+
+    const submitBtn = document.getElementById('edit-ensemble-submit-btn');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Retraining...';
+
+    try {
+        const response = await fetch(apiUrl(`/api/ensembles/${currentEditEnsembleId}/retrain-meta`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ensemble_meta_features: customFeatures,
+                ensemble_use_disagree: useDisagree,
+                ensemble_use_conf: useConf,
+                ensemble_use_logit: useLogit,
+                meta_model_type: metaModelType,
+                name: document.getElementById('edit-ensemble-name').value.trim() || undefined
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            closeEditEnsembleModal();
+
+            // If there's a job_id, we need to poll for completion
+            if (result.job_id) {
+                alert('Meta-model retraining started. The model will be updated when training completes.');
+                // Could add job polling here if desired
+            } else {
+                alert('Meta-model updated successfully!');
+            }
+
+            // Refresh the config list
+            loadHistory();
+        } else {
+            alert('Error updating ensemble: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error updating ensemble:', error);
+        alert('Error updating ensemble: ' + error.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+}
+</script>
+
+<!-- Edit Ensemble Meta Features Modal -->
+<div id="edit-ensemble-modal" class="edit-ensemble-modal" style="display: none;">
+    <div class="edit-ensemble-modal-content">
+        <div class="edit-ensemble-modal-header">
+            <h3>Edit Ensemble Meta Features</h3>
+            <span class="edit-ensemble-modal-close" onclick="closeEditEnsembleModal()">&times;</span>
+        </div>
+        <div class="edit-ensemble-modal-body">
+            <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                Modify the meta-model features and retrain. Base model outputs (p_*) are always included.
+            </p>
+
+            <!-- Ensemble Name -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: 500; display: block; margin-bottom: 6px;">Ensemble Name:</label>
+                <input type="text" id="edit-ensemble-name" placeholder="Ensemble name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+            </div>
+
+            <!-- Meta Model Type -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: 500; display: block; margin-bottom: 6px;">Meta-Model Type:</label>
+                <select id="edit-ensemble-meta-model-type" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%;">
+                    <option value="LogisticRegression">Logistic Regression</option>
+                    <option value="GradientBoosting">Gradient Boosting</option>
+                    <option value="RandomForest">Random Forest</option>
+                    <option value="XGBoost">XGBoost</option>
+                </select>
+            </div>
+
+            <!-- Derived Features -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: 500; display: block; margin-bottom: 8px;">Derived Features:</label>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="edit-ensemble-use-disagree" onchange="updateEditEnsembleMetaSummary()">
+                        <span>Include Disagreement Features (disagree_*)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="edit-ensemble-use-conf" onchange="updateEditEnsembleMetaSummary()">
+                        <span>Include Confidence Features (conf_*)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="edit-ensemble-use-logit" onchange="updateEditEnsembleMetaSummary()">
+                        <span>Log-odds Transform (feed logit(p_*) to meta-learner)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Custom Features -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: 500; display: block; margin-bottom: 6px;">Custom Features (comma-separated):</label>
+                <input type="text" id="edit-ensemble-custom-features"
+                       placeholder="e.g., pred_margin, elo|none|raw|diff"
+                       oninput="updateEditEnsembleMetaSummary()"
+                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                <span style="font-size: 0.85em; color: #888;">Common: pred_margin (requires points model predictions in master CSV)</span>
+            </div>
+
+            <!-- Summary -->
+            <div style="background: #f5f9ff; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+                <strong style="font-size: 0.9em;">Meta features to include:</strong>
+                <span id="edit-ensemble-meta-summary-text" style="font-size: 0.9em; color: #555;">Base model outputs only (p_*)</span>
+            </div>
+
+            <!-- Warning -->
+            <div style="background: #fff8e6; border: 1px solid #ffc107; padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                <strong style="color: #856404;">Note:</strong>
+                <span style="color: #856404; font-size: 0.9em;">
+                    This will retrain the meta-model using existing base model out-of-fold predictions.
+                    Base models are not affected.
+                </span>
+            </div>
+        </div>
+        <div class="edit-ensemble-modal-footer">
+            <button class="btn" onclick="closeEditEnsembleModal()">Cancel</button>
+            <button class="btn btn-primary" id="edit-ensemble-submit-btn" onclick="submitEditEnsemble()">Retrain Meta-Model</button>
+        </div>
+    </div>
+</div>
+
+<!-- Feature Tree Modal -->
+<div id="feature-tree-modal" class="feature-tree-modal" style="display: none;">
+    <div class="feature-tree-modal-content">
+        <span class="feature-tree-modal-close" id="feature-tree-modal-close">&times;</span>
+        <div id="feature-tree-content" class="feature-tree-content"></div>
+    </div>
+</div>
+
+<style>
+/* Edit Ensemble Modal */
+.edit-ensemble-modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    justify-content: center;
+    align-items: center;
+}
+
+.edit-ensemble-modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+
+.edit-ensemble-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.edit-ensemble-modal-header h3 {
+    margin: 0;
+    font-size: 1.1em;
+    color: #333;
+}
+
+.edit-ensemble-modal-close {
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.edit-ensemble-modal-close:hover {
+    color: #333;
+}
+
+.edit-ensemble-modal-body {
+    padding: 20px;
+}
+
+.edit-ensemble-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+}
+
+.feature-tree-modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.8);
+}
+
+.feature-tree-modal-content {
+    background-color: #fefefe;
+    margin: 0;
+    padding: 20px;
+    border: none;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.feature-tree-modal-close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+    padding: 10px;
+    margin: -10px -10px 10px 0;
+}
+
+.feature-tree-modal-close:hover,
+.feature-tree-modal-close:focus {
+    color: #000;
+}
+
+.feature-tree-content {
+    padding: 20px;
+}
+
+.feature-tree-container {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    gap: 10px;
+    padding-bottom: 10px;
+}
+
+.feature-stat-column {
+    width: 25%;
+    min-width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fafafa;
+    overflow-y: auto;
+    max-height: calc(100vh - 200px);
+}
+
+.feature-stat-header {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #667eea;
+    padding: 12px 15px;
+    background: white;
+    border-bottom: 2px solid #667eea;
+    border-radius: 8px 8px 0 0;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.feature-list-item {
+    padding: 10px 15px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s, opacity 0.2s;
+    border: 1px solid rgba(0,0,0,0.1);
+    min-height: 40px;
+    margin: 4px 8px;
+    margin-top: 4px;
+    opacity: 1;
+}
+
+.feature-list-item.feature-unselected {
+    opacity: 0.5;
+}
+
+.feature-list-item:hover {
+    transform: translateX(5px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    z-index: 1;
+    position: relative;
+}
+
+.feature-list-item-name {
+    flex: 1;
+    font-weight: 500;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+
+.feature-list-item-score {
+    margin-left: 15px;
+    font-weight: 600;
+    font-size: 0.95em;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+</style>
+{% endblock %}
+

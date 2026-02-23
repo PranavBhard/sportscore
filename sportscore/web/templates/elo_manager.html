@@ -1,0 +1,626 @@
+{% extends "base.html" %}
+
+{% block title %}Elo Ratings Manager{% endblock %}
+
+{% block styles %}
+<style>
+    .elo-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .page-header {
+        margin-bottom: 30px;
+    }
+
+    .page-header h1 {
+        margin-bottom: 10px;
+    }
+
+    .page-header p {
+        color: #666;
+        font-size: 16px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .stat-card.secondary {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+
+    .stat-card.tertiary {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .stat-value {
+        font-size: 32px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .stat-label {
+        font-size: 14px;
+        opacity: 0.9;
+    }
+
+    .section {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 25px;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .section-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+
+    .btn-primary:disabled {
+        background: #a0a0a0;
+        cursor: not-allowed;
+    }
+
+    .btn-danger {
+        background: #dc3545;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #c82333;
+    }
+
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #5a6268;
+    }
+
+    .season-select {
+        padding: 10px 15px;
+        border: 2px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        min-width: 200px;
+    }
+
+    .progress-container {
+        display: none;
+        margin-top: 20px;
+    }
+
+    .progress-container.active {
+        display: block;
+    }
+
+    .progress-bar-wrapper {
+        background: #e9ecef;
+        border-radius: 10px;
+        height: 20px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.3s ease;
+        width: 0%;
+    }
+
+    .progress-text {
+        font-size: 14px;
+        color: #666;
+    }
+
+    .ratings-table-container {
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+    }
+
+    .ratings-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .ratings-table th,
+    .ratings-table td {
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+    }
+
+    .ratings-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .ratings-table tr:hover {
+        background: #f8f9fa;
+    }
+
+    .rank-cell {
+        font-weight: 600;
+        color: #667eea;
+        width: 60px;
+    }
+
+    .elo-cell {
+        font-weight: 600;
+        width: 100px;
+    }
+
+    .elo-high {
+        color: #28a745;
+    }
+
+    .elo-low {
+        color: #dc3545;
+    }
+
+    .info-text {
+        color: #666;
+        font-size: 14px;
+        margin-top: 15px;
+    }
+
+    .info-text code {
+        background: #e9ecef;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 15px;
+    }
+
+    .meta-info {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 15px;
+        font-size: 14px;
+        color: #666;
+    }
+
+    .meta-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .meta-item strong {
+        color: #333;
+    }
+
+    .alert {
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .alert-success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+
+    .alert-error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+
+    .alert-info {
+        background: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+    }
+
+    #alertContainer {
+        position: fixed;
+        top: 100px;
+        right: 20px;
+        z-index: 1000;
+        max-width: 400px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="elo-container">
+    <div class="page-header">
+        <h1>Elo Ratings Manager</h1>
+        <p>Manage cached Elo ratings for {{ (league_id or 'league')|upper }} teams. Elo ratings are computed from historical game results and cached in MongoDB for fast prediction-time lookups.</p>
+    </div>
+
+    <div id="alertContainer"></div>
+
+    <!-- Statistics Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="totalRatings">{{ stats.total_ratings | default(0) | int }}</div>
+            <div class="stat-label">Cached Ratings</div>
+        </div>
+        <div class="stat-card secondary">
+            <div class="stat-value" id="totalTeams">{{ stats.teams | default(0) }}</div>
+            <div class="stat-label">Teams</div>
+        </div>
+        <div class="stat-card tertiary">
+            <div class="stat-value" id="totalSeasons">{{ stats.seasons | length if stats.seasons else 0 }}</div>
+            <div class="stat-label">Seasons</div>
+        </div>
+    </div>
+
+    <!-- Cache Actions -->
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Cache Management</span>
+        </div>
+
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <select id="seasonSelect" class="season-select">
+                <option value="">All Seasons</option>
+                {% for season in available_seasons %}
+                <option value="{{ season }}">{{ season }}</option>
+                {% endfor %}
+            </select>
+
+            <button class="btn btn-primary" id="runCacheBtn" onclick="runEloCache()">
+                Run Elo Cache
+            </button>
+
+            <button class="btn btn-secondary" id="refreshBtn" onclick="refreshStats()">
+                Refresh Stats
+            </button>
+
+            <button class="btn btn-danger" id="clearCacheBtn" onclick="clearCache()">
+                Clear Cache
+            </button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText">Starting...</div>
+        </div>
+
+        <div class="meta-info">
+            {% if stats.date_range and stats.date_range.min %}
+            <div class="meta-item">
+                <strong>Date Range:</strong>
+                <span>{{ stats.date_range.min }} to {{ stats.date_range.max }}</span>
+            </div>
+            {% endif %}
+            {% if stats.last_updated %}
+            <div class="meta-item">
+                <strong>Last Updated:</strong>
+                <span>{{ stats.last_updated.strftime('%Y-%m-%d %H:%M:%S') if stats.last_updated else 'Never' }}</span>
+            </div>
+            {% endif %}
+            {% if stats.seasons %}
+            <div class="meta-item">
+                <strong>Seasons:</strong>
+                <span>{{ stats.seasons | join(', ') }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <p class="info-text">
+            <strong>CLI Alternative:</strong> You can also run <code>python cli/cache_elo_ratings.py</code> from the command line.
+        </p>
+    </div>
+
+    <!-- Current Ratings -->
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Current Team Elo Ratings</span>
+            <button class="btn btn-secondary" onclick="loadCurrentRatings()">Refresh</button>
+        </div>
+
+        <div class="ratings-table-container" id="ratingsTableContainer">
+            {% if current_ratings %}
+            <table class="ratings-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Team</th>
+                        <th>Elo Rating</th>
+                    </tr>
+                </thead>
+                <tbody id="ratingsTableBody">
+                    {% for team, elo in current_ratings %}
+                    <tr>
+                        <td class="rank-cell">{{ loop.index }}</td>
+                        <td>{{ team }}</td>
+                        <td class="elo-cell {% if elo >= 1550 %}elo-high{% elif elo <= 1450 %}elo-low{% endif %}">
+                            {{ "%.1f" | format(elo) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">📊</div>
+                <p>No Elo ratings cached yet.</p>
+                <p>Click "Run Elo Cache" to compute and cache ratings.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let pollInterval = null;
+
+    function showAlert(message, type = 'info') {
+        const alertContainer = document.getElementById('alertContainer');
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.appendChild(alert);
+
+        setTimeout(() => {
+            alert.remove();
+        }, 5000);
+    }
+
+    function updateProgress(percent, text) {
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+
+        progressContainer.classList.add('active');
+        progressBar.style.width = percent + '%';
+        progressText.textContent = text;
+    }
+
+    function hideProgress() {
+        document.getElementById('progressContainer').classList.remove('active');
+    }
+
+    function setButtonsDisabled(disabled) {
+        document.getElementById('runCacheBtn').disabled = disabled;
+        document.getElementById('clearCacheBtn').disabled = disabled;
+    }
+
+    async function runEloCache() {
+        const season = document.getElementById('seasonSelect').value;
+        const seasons = season ? [season] : null;
+
+        setButtonsDisabled(true);
+        updateProgress(0, 'Starting Elo cache computation...');
+
+        try {
+            const response = await fetch('/api/elo-cache/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({seasons: seasons})
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                if (data.job_id) {
+                    // Poll for job status
+                    pollJobStatus(data.job_id);
+                } else {
+                    // Immediate result
+                    updateProgress(100, 'Complete!');
+                    showAlert(`Cached ${data.ratings_cached} Elo ratings for ${data.teams} teams`, 'success');
+                    setTimeout(() => {
+                        hideProgress();
+                        refreshStats();
+                        loadCurrentRatings();
+                    }, 1000);
+                    setButtonsDisabled(false);
+                }
+            } else {
+                hideProgress();
+                showAlert(data.error || 'Failed to run Elo cache', 'error');
+                setButtonsDisabled(false);
+            }
+        } catch (error) {
+            hideProgress();
+            showAlert('Error: ' + error.message, 'error');
+            setButtonsDisabled(false);
+        }
+    }
+
+    function pollJobStatus(jobId) {
+        pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/jobs/${jobId}`);
+                const data = await response.json();
+
+                if (!data.success || !data.job) {
+                    clearInterval(pollInterval);
+                    hideProgress();
+                    showAlert(data.error || 'Failed to get job status', 'error');
+                    setButtonsDisabled(false);
+                    return;
+                }
+
+                const job = data.job;
+
+                if (job.status === 'running') {
+                    updateProgress(job.progress || 0, job.message || 'Processing...');
+                } else if (job.status === 'completed') {
+                    clearInterval(pollInterval);
+                    updateProgress(100, 'Complete!');
+                    showAlert(job.message || 'Elo cache completed', 'success');
+                    setTimeout(() => {
+                        hideProgress();
+                        refreshStats();
+                        loadCurrentRatings();
+                    }, 1000);
+                    setButtonsDisabled(false);
+                } else if (job.status === 'failed') {
+                    clearInterval(pollInterval);
+                    hideProgress();
+                    showAlert(job.error || job.message || 'Job failed', 'error');
+                    setButtonsDisabled(false);
+                }
+            } catch (error) {
+                clearInterval(pollInterval);
+                hideProgress();
+                showAlert('Error polling job status', 'error');
+                setButtonsDisabled(false);
+            }
+        }, 1000);
+    }
+
+    async function clearCache() {
+        const season = document.getElementById('seasonSelect').value;
+        const message = season
+            ? `Are you sure you want to clear the Elo cache for season ${season}?`
+            : 'Are you sure you want to clear the entire Elo cache?';
+
+        if (!confirm(message)) return;
+
+        try {
+            const response = await fetch('/api/elo-cache/clear', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({seasons: season ? [season] : null})
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showAlert(`Deleted ${data.deleted} cached ratings`, 'success');
+                refreshStats();
+                loadCurrentRatings();
+            } else {
+                showAlert(data.error || 'Failed to clear cache', 'error');
+            }
+        } catch (error) {
+            showAlert('Error: ' + error.message, 'error');
+        }
+    }
+
+    async function refreshStats() {
+        try {
+            const response = await fetch('/api/elo-cache/stats');
+            const stats = await response.json();
+
+            document.getElementById('totalRatings').textContent = stats.total_ratings?.toLocaleString() || '0';
+            document.getElementById('totalTeams').textContent = stats.teams || '0';
+            document.getElementById('totalSeasons').textContent = stats.seasons?.length || '0';
+
+        } catch (error) {
+            console.error('Error refreshing stats:', error);
+        }
+    }
+
+    async function loadCurrentRatings() {
+        try {
+            const response = await fetch('/api/elo-cache/current-ratings');
+            const data = await response.json();
+
+            const container = document.getElementById('ratingsTableContainer');
+
+            if (data.ratings && Object.keys(data.ratings).length > 0) {
+                // Sort by Elo descending
+                const sorted = Object.entries(data.ratings).sort((a, b) => b[1] - a[1]);
+
+                let html = `
+                    <table class="ratings-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Team</th>
+                                <th>Elo Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                sorted.forEach(([team, elo], idx) => {
+                    const eloClass = elo >= 1550 ? 'elo-high' : (elo <= 1450 ? 'elo-low' : '');
+                    html += `
+                        <tr>
+                            <td class="rank-cell">${idx + 1}</td>
+                            <td>${team}</td>
+                            <td class="elo-cell ${eloClass}">${elo.toFixed(1)}</td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <p>No Elo ratings cached yet.</p>
+                        <p>Click "Run Elo Cache" to compute and cache ratings.</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error loading ratings:', error);
+        }
+    }
+</script>
+{% endblock %}

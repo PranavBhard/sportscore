@@ -273,12 +273,18 @@ class DbIngestionCommand(SportCommand):
                             help="Show what would be done without modifying data")
         parser.add_argument("--verbose", "-v", action="store_true",
                             help="Show detailed output")
+        parser.add_argument("--game-ids", type=str, default=None,
+                            help="Comma-separated ESPN game IDs to fetch (skips season iteration)")
 
     def run(self, args, *, league_loader=None, db_factory=None,
             plugin=None, **kwargs) -> int:
         if plugin is None:
             print("Error: sport plugin not available", file=sys.stderr)
             return 1
+
+        game_ids = None
+        if args.game_ids:
+            game_ids = [gid.strip() for gid in args.game_ids.split(",") if gid.strip()]
 
         pipeline = plugin.get_ingestion_pipeline(
             args.league,
@@ -289,6 +295,7 @@ class DbIngestionCommand(SportCommand):
             skip_enrichment=getattr(args, 'skip_enrichment', False),
             dry_run=args.dry_run,
             verbose=args.verbose,
+            game_ids=game_ids,
         )
 
         if pipeline is None:

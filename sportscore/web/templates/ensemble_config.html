@@ -1,0 +1,2700 @@
+{% extends "base.html" %}
+
+{% block title %}Ensemble Configuration{% endblock %}
+
+{% block content %}
+<div class="ensemble-config-container">
+
+    <!-- Ensemble Config Modal -->
+    <div id="ensemble-config-modal" class="ensemble-modal">
+        <div class="ensemble-modal-content">
+            <div class="ensemble-modal-header">
+                <h3 id="form-mode-header">New Ensemble</h3>
+                <button type="button" onclick="closeEnsembleModal()" style="background:none; border:none; font-size:1.5em; cursor:pointer; color:#666; padding:0 5px;">&times;</button>
+            </div>
+            <div class="ensemble-modal-body">
+            <form id="ensemble-config-form">
+
+                <!-- Ensemble Name -->
+                <div class="config-section">
+                    <div class="form-group">
+                        <label for="ensemble-name">Ensemble Name:</label>
+                        <input type="text" id="ensemble-name" name="ensemble_name" placeholder="e.g., My 3-model ensemble">
+                    </div>
+                </div>
+
+                <!-- Meta-Model Configuration -->
+                <div class="config-section">
+                    <h3>Meta-Model Configuration</h3>
+
+                    <div class="form-group">
+                        <label for="meta-model-type">Meta-Model Type:</label>
+                        <select id="meta-model-type" name="meta_model_type">
+                            <option value="LogisticRegression" selected>Logistic Regression</option>
+                            <option value="SVM">SVM</option>
+                            <option value="GradientBoosting">Gradient Boosting</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="c-value-group">
+                        <label for="meta-c-value">C-Value:</label>
+                        <select id="meta-c-value" name="meta_c_value">
+                            <option value="0.01">0.01</option>
+                            <option value="0.1" selected>0.1</option>
+                            <option value="1.0">1.0</option>
+                            <option value="10.0">10.0</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="stacking-mode">Stacking Mode:</label>
+                        <select id="stacking-mode" name="stacking_mode">
+                            <option value="naive" selected>Naive (base predictions only)</option>
+                            <option value="informed">Informed (with meta features)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <label><input type="checkbox" name="use_logit" id="use-logit"> Log-odds transform (feed logit(p_*) to meta-learner)</label>
+                    </div>
+
+                    <div id="meta-features-section" style="display: none;">
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="use_disagree" id="use-disagree"> Include Disagreement Features</label>
+                            <label><input type="checkbox" name="use_conf" id="use-conf"> Include Confidence Features</label>
+                        </div>
+                        <div class="form-group" style="margin-top: 10px;">
+                            <label for="custom-meta-features">Custom Features (comma-separated):</label>
+                            <input type="text" id="custom-meta-features" name="custom_meta_features" placeholder="e.g., pred_margin, points|season|avg|diff">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Meta-Model Calibration (optional) -->
+                <div class="config-section">
+                    <h3>Meta-Model Calibration <span style="font-size: 0.75em; color: #999; font-weight: normal;">(optional)</span></h3>
+
+                    <div class="form-group checkbox-group">
+                        <label><input type="checkbox" id="enable-meta-calibration" onchange="onMetaCalibrationToggle()">
+                            Enable time-based calibration for meta-model
+                        </label>
+                    </div>
+
+                    <div id="meta-calibration-fields" style="display: none;">
+                        <div class="form-group">
+                            <label for="meta-cal-method">Calibration Method:</label>
+                            <select id="meta-cal-method">
+                                <option value="isotonic">Isotonic</option>
+                                <option value="sigmoid">Sigmoid</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="meta-train-years">Meta Train Years (comma-separated):</label>
+                            <input type="text" id="meta-train-years" placeholder="e.g. 2021, 2022">
+                        </div>
+                        <div class="form-group">
+                            <label for="meta-cal-years">Meta Calibration Years (comma-separated):</label>
+                            <input type="text" id="meta-cal-years" placeholder="e.g. 2023">
+                        </div>
+                        <div class="form-group">
+                            <label for="meta-eval-year">Meta Evaluation Year:</label>
+                            <input type="number" id="meta-eval-year" placeholder="e.g. 2024" min="2007" max="2030">
+                        </div>
+                        <p class="help-text" style="font-size: 11px; color: #888; margin-top: 4px;">
+                            Splits meta-model data into 3 periods: train the meta-model on meta-train years,
+                            fit a calibrator on meta-cal years, evaluate on meta-eval year.
+                            All years must be within the base models' calibration period or later.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Base Model Selector -->
+                <div class="config-section">
+                    <h3>Base Models <span id="selected-base-count">(0 selected)</span></h3>
+
+                    <div class="form-group">
+                        <label for="time-config-filter">Filter by Time Config:</label>
+                        <select id="time-config-filter">
+                            <option value="">All Configurations</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="base-model-search" placeholder="Search models..." class="full-width-input">
+                    </div>
+
+                    <div id="base-models-list" class="base-models-list">
+                        <div class="loading">Loading base models...</div>
+                    </div>
+                </div>
+
+                <!-- Training Options -->
+                <div class="config-section">
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="force-rebuild-dataset"> Force Rebuild Dataset (bypass cache)</label>
+                    </div>
+                    <p class="help-text" style="font-size: 11px; color: #888; margin-top: 4px;">
+                        Check this if you updated pred_margin or other master_training data
+                    </p>
+                </div>
+
+            </form>
+            </div>
+            <div class="ensemble-modal-footer">
+                <button type="button" id="tertiary-action-btn" class="btn btn-retrain" style="display: none;">Retrain Meta Only</button>
+                <div style="flex: 1;"></div>
+                <button type="button" id="secondary-action-btn" class="btn btn-secondary">Save Draft</button>
+                <button type="button" id="primary-action-btn" class="btn btn-primary">Save &amp; Train</button>
+            </div>
+        </div>
+    </div>
+
+        <!-- Results Panel -->
+        <div class="results-panel">
+            <div class="results-header">
+                <h3>Ensembles</h3>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button type="button" class="btn btn-primary btn-small" onclick="openEnsembleModal('create')">+ New Ensemble</button>
+                    <button type="button" id="refresh-ensembles-btn" class="btn btn-small">Refresh</button>
+                </div>
+            </div>
+
+            <!-- Filter and Sort Controls -->
+            <div class="filter-sort-controls">
+                <div class="filter-group">
+                    <label for="filter-meta-type">Meta Type:</label>
+                    <select id="filter-meta-type" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="LogisticRegression">Logistic Regression</option>
+                        <option value="SVM">SVM</option>
+                        <option value="GradientBoosting">Gradient Boosting</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filter-stacking">Stacking:</label>
+                    <select id="filter-stacking" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="naive">Naive</option>
+                        <option value="informed">Informed</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filter-trained">Status:</label>
+                    <select id="filter-trained" onchange="applyFiltersAndSort()">
+                        <option value="">All</option>
+                        <option value="trained">Trained</option>
+                        <option value="untrained">Untrained</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="sort-ensembles">Sort By:</label>
+                    <select id="sort-ensembles" onchange="applyFiltersAndSort()">
+                        <option value="updated_desc" selected>Updated (Newest)</option>
+                        <option value="updated_asc">Updated (Oldest)</option>
+                        <option value="accuracy_desc">Accuracy (High)</option>
+                        <option value="accuracy_asc">Accuracy (Low)</option>
+                        <option value="base_count_desc">Base Models (Most)</option>
+                        <option value="base_count_asc">Base Models (Least)</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <button type="button" class="btn btn-small" onclick="resetFiltersAndSort()">Reset</button>
+                </div>
+            </div>
+
+            <!-- Results Content -->
+            <div id="results-content" class="results-content">
+                <!-- Job Progress Bar -->
+                <div id="job-progress-container" style="display: none; margin-bottom: 20px; padding: 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #ddd;">
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span style="font-weight: 600; color: #333;">Training in progress...</span>
+                            <span id="job-progress-percent" style="font-weight: 600; color: #667eea;">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 24px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
+                            <div id="job-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.3s ease; border-radius: 12px;"></div>
+                        </div>
+                    </div>
+                    <div id="job-progress-message" style="margin-top: 10px; color: #666; font-size: 0.9em;">Initializing...</div>
+                    <div id="job-error" style="display: none; margin-top: 10px; padding: 10px; background: #fee; border: 1px solid #fcc; border-radius: 4px; color: #c33;"></div>
+                </div>
+                <!-- Calibration Modal -->
+                <div id="calibration-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                    <div style="background: white; border-radius: 8px; padding: 25px; max-width: 480px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2);">
+                        <h3 style="margin: 0 0 20px 0; color: #333;">Update Time Calibration</h3>
+                        <input type="hidden" id="cal-modal-ensemble-id">
+
+                        <div class="form-group">
+                            <label for="cal-method">Calibration Method:</label>
+                            <select id="cal-method" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                <option value="isotonic">Isotonic</option>
+                                <option value="sigmoid">Sigmoid</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cal-begin-year">Begin Year:</label>
+                            <input type="number" id="cal-begin-year" min="2007" max="2030" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cal-years">Calibration Years (comma-separated):</label>
+                            <input type="text" id="cal-years" placeholder="e.g. 2021, 2022, 2023" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cal-eval-year">Evaluation Year:</label>
+                            <input type="number" id="cal-eval-year" min="2007" max="2030" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cal-exclude">Exclude Seasons (comma-separated, optional):</label>
+                            <input type="text" id="cal-exclude" placeholder="e.g. 2020" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cal-min-games">Min Games Played:</label>
+                            <input type="number" id="cal-min-games" min="0" max="100" step="1" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;" title="Minimum games each team must have played before a game is included in training data">
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeCalibrationModal()">Cancel</button>
+                            <button class="btn btn-primary" onclick="submitCalibrationUpdate()">Apply & Retrain</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ensembles-loading" class="loading" style="display: none;">Loading ensembles...</div>
+                <div id="ensembles-list"></div>
+            </div>
+        </div>
+</div>
+
+<!-- Edit Base Model Modal -->
+<div id="edit-base-model-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:2000; overflow-y:auto;">
+    <div style="background:white; max-width:900px; margin:30px auto; border-radius:10px; box-shadow:0 12px 48px rgba(0,0,0,0.25); display:flex; flex-direction:column; max-height:calc(100vh - 60px);">
+        <!-- Header -->
+        <div style="padding:20px 25px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+            <h3 style="margin:0; color:#333;">Edit Base Model</h3>
+            <button onclick="closeEditBaseModelModal()" style="background:none; border:none; font-size:1.5em; cursor:pointer; color:#666; padding:0 5px;">&times;</button>
+        </div>
+
+        <!-- Scrollable body -->
+        <div style="padding:25px; overflow-y:auto; flex:1;">
+            <input type="hidden" id="edit-bm-ensemble-id">
+            <input type="hidden" id="edit-bm-model-id">
+
+            <!-- Name -->
+            <div class="form-group">
+                <label for="edit-bm-name">Name:</label>
+                <input type="text" id="edit-bm-name" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+            </div>
+
+            <!-- Model Type -->
+            <div class="form-group">
+                <label for="edit-bm-model-type">Model Type:</label>
+                <select id="edit-bm-model-type" onchange="onEditBmModelTypeChange()" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                    <option value="LogisticRegression">Logistic Regression</option>
+                    <option value="GradientBoosting">Gradient Boosting</option>
+                    <option value="SVM">SVM</option>
+                    <option value="RandomForest">Random Forest</option>
+                    <option value="NaiveBayes">Naive Bayes</option>
+                    <option value="NeuralNetwork">Neural Network</option>
+                </select>
+            </div>
+
+            <!-- C-Value -->
+            <div class="form-group" id="edit-bm-c-value-group">
+                <label for="edit-bm-c-value">C-Value:</label>
+                <select id="edit-bm-c-value" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                    <option value="0.001">0.001</option>
+                    <option value="0.01">0.01</option>
+                    <option value="0.1">0.1</option>
+                    <option value="1.0">1.0</option>
+                    <option value="10.0">10.0</option>
+                    <option value="100.0">100.0</option>
+                </select>
+            </div>
+
+            <!-- Time Settings (read-only) -->
+            <div id="edit-bm-time-settings" style="background:#f0f4ff; padding:12px 16px; border-radius:6px; margin-bottom:15px; font-size:0.9em; color:#555;">
+                <strong style="color:#333;">Time Settings (shared across ensemble — read-only)</strong>
+                <div id="edit-bm-time-details" style="margin-top:8px;"></div>
+            </div>
+
+            <!-- Feature Sets -->
+            <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+                <label style="font-weight:600; color:#333;">Feature Sets <span id="edit-bm-feature-count" style="font-weight:400; color:#666;">(0 features selected)</span></label>
+                <button type="button" id="edit-bm-features-pencil" title="Edit features by name" style="background:none; border:none; cursor:pointer; padding:2px 4px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg>
+                </button>
+            </div>
+            <div id="edit-bm-feature-sets" style="max-height:500px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; background:#fafafa;"></div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding:15px 25px; border-top:1px solid #eee; display:flex; gap:10px; justify-content:flex-end; flex-shrink:0;">
+            <button class="btn btn-secondary" onclick="closeEditBaseModelModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveBaseModelEdits()">Save</button>
+            <button class="btn btn-success" onclick="saveAndRetrainBaseModel()">Save &amp; Re-train</button>
+        </div>
+    </div>
+</div>
+
+<!-- Feature Selection by Name Modal -->
+<div id="edit-bm-feature-name-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10001; display:none; align-items:center; justify-content:center;">
+    <div style="background:white; border-radius:8px; max-width:600px; width:90%; max-height:80vh; display:flex; flex-direction:column;">
+        <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">Select Features by Name</h3>
+            <button type="button" onclick="document.getElementById('edit-bm-feature-name-modal').style.display='none'" style="background:none; border:none; font-size:1.4em; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding:20px; overflow-y:auto;">
+            <p style="margin:0 0 10px; color:#666; font-size:0.9em;">Enter feature names separated by commas or new lines. Features will be automatically checked.</p>
+            <textarea id="edit-bm-feature-names-input" placeholder="feature1, feature2, feature3&#10;or&#10;feature1&#10;feature2&#10;feature3" style="width:100%; min-height:200px; padding:10px; border:1px solid #ddd; border-radius:4px; font-family:monospace; font-size:0.9em; resize:vertical; box-sizing:border-box;"></textarea>
+            <div style="margin-top:15px;">
+                <label style="display:flex; align-items:center; cursor:pointer;">
+                    <input type="checkbox" id="edit-bm-clear-and-reselect" style="margin-right:8px;">
+                    <span>Clear all selections and only select features from the list above</span>
+                </label>
+            </div>
+        </div>
+        <div style="padding:15px 20px; border-top:1px solid #eee; display:flex; justify-content:flex-end; gap:10px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('edit-bm-feature-name-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" onclick="applyEditBmFeatureNames()">Apply</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.ensemble-config-container {
+    max-width: 100%;
+    width: 100%;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Ensemble Config Modal */
+.ensemble-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.ensemble-modal-content {
+    background: white;
+    border-radius: 10px;
+    max-width: 640px;
+    width: 90%;
+    max-height: calc(100vh - 60px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+}
+
+.ensemble-modal-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.ensemble-modal-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.2em;
+}
+
+.ensemble-modal-body {
+    padding: 25px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.ensemble-modal-footer {
+    padding: 15px 25px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.config-section {
+    margin-bottom: 25px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+.config-section:last-child {
+    border-bottom: none;
+}
+
+.config-section h3 {
+    margin: 0 0 15px 0;
+    font-size: 1.1em;
+    color: #333;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #555;
+    font-size: 0.95em;
+}
+
+.form-group select,
+.form-group input[type="text"] {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95em;
+}
+
+.full-width-select,
+.full-width-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95em;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.95em;
+}
+
+.checkbox-group input[type="checkbox"] {
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.base-models-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+}
+
+.base-model-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.base-model-item:last-child {
+    border-bottom: none;
+}
+
+.base-model-item:hover {
+    background: #f5f5f5;
+}
+
+.base-model-item.selected {
+    background: #e8f4e8;
+    border-left: 3px solid #27ae60;
+}
+
+.base-model-item.incompatible {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #f9f9f9;
+}
+
+.base-model-checkbox {
+    margin-top: 2px;
+}
+
+.base-model-info {
+    flex: 1;
+}
+
+.base-model-name {
+    font-weight: 600;
+    color: #333;
+    font-size: 0.95em;
+}
+
+.base-model-meta {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 3px;
+}
+
+.base-model-metrics {
+    display: flex;
+    gap: 12px;
+    margin-top: 5px;
+    font-size: 0.8em;
+}
+
+.base-model-metric {
+    color: #667eea;
+    font-weight: 500;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.btn-secondary:hover {
+    background: #d0d0d0;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.85em;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+    color: white;
+}
+
+.btn-success:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(39, 174, 96, 0.3);
+}
+
+.btn-retrain {
+    background: #f39c12;
+    color: white;
+}
+
+.btn-retrain:hover {
+    background: #e67e22;
+}
+
+.btn-retrain:disabled {
+    background: #bdc3c7;
+    cursor: not-allowed;
+}
+
+.btn-copy {
+    background: #f0f4ff;
+    color: #667eea;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+}
+
+.btn-copy:hover {
+    background: #667eea;
+    color: white;
+}
+
+.btn-copy.copied {
+    background: #27ae60;
+    color: white;
+}
+
+.results-panel {
+    background: white;
+    border-radius: 8px;
+    padding: 25px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    overflow: hidden;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #eee;
+}
+
+.results-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.2em;
+}
+
+.filter-sort-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 0.9em;
+    font-weight: 500;
+    color: #555;
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    font-size: 0.9em;
+    color: #333;
+    min-width: 120px;
+    cursor: pointer;
+}
+
+.results-content {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #667eea;
+}
+
+.loading::after {
+    content: "...";
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: "."; }
+    40% { content: ".."; }
+    60%, 100% { content: "..."; }
+}
+
+/* Ensemble Card Styles */
+.ensemble-card {
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-left: 4px solid #27ae60;
+    transition: all 0.2s;
+}
+
+.ensemble-card.untrained {
+    border-left-color: #f39c12;
+}
+
+.ensemble-card.selected-ensemble {
+    border-left-color: #667eea;
+    background: #f0f4ff;
+}
+
+.ensemble-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.ensemble-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.ensemble-title {
+    flex: 1;
+}
+
+.ensemble-name {
+    font-weight: 600;
+    color: #333;
+    font-size: 1.05em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ensemble-name .name-display {
+    cursor: pointer;
+}
+
+.ensemble-name .name-display:hover {
+    color: #667eea;
+    text-decoration: underline;
+}
+
+.ensemble-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+
+.badge-trained {
+    background: #d4edda;
+    color: #155724;
+}
+
+.badge-untrained {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badge-selected {
+    background: #667eea;
+    color: white;
+}
+
+.ensemble-meta {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 5px;
+}
+
+.ensemble-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ensemble-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.ensemble-metric {
+    background: white;
+    padding: 10px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.metric-label {
+    font-size: 0.8em;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metric-value {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: #333;
+    margin-top: 3px;
+}
+
+/* Expandable Base Models Section */
+.base-models-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+}
+
+.base-models-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    color: #667eea;
+    font-size: 0.95em;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.base-models-toggle:hover {
+    color: #5568d3;
+}
+
+.toggle-icon {
+    transition: transform 0.2s;
+}
+
+.toggle-icon.expanded {
+    transform: rotate(180deg);
+}
+
+.base-models-content {
+    display: none;
+    margin-top: 15px;
+}
+
+.base-models-content.expanded {
+    display: block;
+}
+
+.base-model-card {
+    background: white;
+    border: 1px solid #e3e6ef;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+}
+
+.base-model-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.base-model-card-title {
+    font-weight: 600;
+    color: #333;
+}
+
+.base-model-card-type {
+    font-size: 0.85em;
+    color: #666;
+}
+
+.base-model-card-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.base-model-card-metrics {
+    display: flex;
+    gap: 15px;
+    margin-top: 8px;
+    font-size: 0.85em;
+}
+
+.base-metric {
+    color: #667eea;
+}
+
+.base-metric-label {
+    color: #888;
+    margin-right: 4px;
+}
+
+/* Time Config Display */
+.time-config-display {
+    background: #f0f4ff;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: #555;
+    margin-top: 10px;
+}
+
+.time-config-display strong {
+    color: #333;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.empty-state h4 {
+    color: #333;
+    margin-bottom: 10px;
+}
+
+/* Meta-feature rankings in ensemble cards */
+.meta-rankings-section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.meta-rankings-toggle {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #667eea;
+    font-weight: 700;
+    font-size: 0.88em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.meta-rankings-toggle:hover {
+    background: rgba(102, 126, 234, 0.10);
+}
+
+.meta-rankings-toggle .chev {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 0.85em;
+}
+
+.meta-rankings-toggle.expanded .chev {
+    transform: rotate(180deg);
+}
+
+.meta-rankings-content {
+    display: none;
+    margin-top: 6px;
+    padding: 0;
+}
+
+.meta-ranking-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    font-size: 0.85em;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.meta-ranking-item:last-child {
+    border-bottom: none;
+}
+
+.meta-ranking-item .rank {
+    color: #999;
+    min-width: 22px;
+    text-align: right;
+    font-family: 'Courier New', monospace;
+}
+
+.meta-ranking-item .name {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+}
+
+.meta-ranking-item .name.is-prediction {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.meta-ranking-item .bar-wrap {
+    width: 80px;
+    height: 8px;
+    background: #eee;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.meta-ranking-item .bar {
+    height: 100%;
+    background: #667eea;
+    border-radius: 4px;
+}
+
+.meta-ranking-item .score {
+    color: #888;
+    font-family: 'Courier New', monospace;
+    min-width: 50px;
+    text-align: right;
+}
+
+/* Feature importance expandable in base model cards */
+.base-model-features-section {
+    margin-top: 8px;
+}
+
+.base-model-features-toggle {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #667eea;
+    font-weight: 700;
+    font-size: 0.82em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.base-model-features-toggle:hover {
+    background: rgba(102, 126, 234, 0.10);
+}
+
+.base-model-features-toggle .chev {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 0.85em;
+}
+
+.base-model-features-toggle.expanded .chev {
+    transform: rotate(180deg);
+}
+
+.base-model-features-content {
+    display: none;
+    margin-top: 6px;
+    background: #fafbff;
+    border: 1px solid #e8ecff;
+    border-radius: 6px;
+    padding: 8px 10px;
+    max-height: 280px;
+    overflow: auto;
+}
+
+.base-model-feature-item {
+    display: flex;
+    gap: 6px;
+    font-size: 0.82em;
+    padding: 2px 0;
+    font-family: 'Courier New', monospace;
+    color: #444;
+}
+
+.base-model-feature-item .rank {
+    color: #999;
+    min-width: 26px;
+    text-align: right;
+}
+
+.base-model-feature-item .name {
+    flex: 1;
+}
+
+.base-model-feature-item .score {
+    color: #667eea;
+    font-weight: 600;
+}
+</style>
+
+<script>
+// Feature sets data (from master CSV)
+const FEATURE_SETS = {{ feature_sets | tojson | safe }};
+const FEATURE_SET_DESCRIPTIONS = {{ feature_set_descriptions | tojson | safe }};
+
+// State
+let allEnsembles = [];
+let allBaseModels = [];
+let selectedBaseModelIds = new Set();
+let selectedEnsembleId = null;
+let currentJobId = null;
+let jobPollInterval = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Event listeners
+    document.getElementById('meta-model-type').addEventListener('change', onMetaModelTypeChange);
+    document.getElementById('stacking-mode').addEventListener('change', onStackingModeChange);
+    document.getElementById('time-config-filter').addEventListener('change', filterBaseModels);
+    document.getElementById('base-model-search').addEventListener('input', filterBaseModels);
+
+    document.getElementById('primary-action-btn').addEventListener('click', onPrimaryAction);
+    document.getElementById('secondary-action-btn').addEventListener('click', onSecondaryAction);
+    document.getElementById('tertiary-action-btn').addEventListener('click', onTertiaryAction);
+    document.getElementById('refresh-ensembles-btn').addEventListener('click', loadEnsembles);
+
+    // Close modal on overlay click
+    document.getElementById('ensemble-config-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeEnsembleModal();
+    });
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('ensemble-config-modal');
+            if (modal.style.display === 'flex') closeEnsembleModal();
+        }
+    });
+
+    // Initialize
+    loadEnsembles();
+    loadBaseModels();
+});
+
+// ========== Data Loading ==========
+
+async function loadEnsembles() {
+    document.getElementById('ensembles-loading').style.display = 'block';
+    document.getElementById('ensembles-list').innerHTML = '';
+
+    try {
+        const response = await fetch('/api/ensembles');
+        const data = await response.json();
+
+        if (data.success) {
+            allEnsembles = data.ensembles || [];
+            applyFiltersAndSort();
+        } else {
+            showError('Failed to load ensembles: ' + data.error);
+        }
+    } catch (error) {
+        showError('Error loading ensembles: ' + error.message);
+    } finally {
+        document.getElementById('ensembles-loading').style.display = 'none';
+    }
+}
+
+async function loadBaseModels() {
+    try {
+        const response = await fetch('/api/ensembles/available-base-models');
+        const data = await response.json();
+
+        if (data.success) {
+            allBaseModels = data.models || [];
+            populateTimeConfigFilter();
+            renderBaseModels();
+        } else {
+            document.getElementById('base-models-list').innerHTML =
+                '<div style="padding: 20px; color: #c33;">Failed to load base models</div>';
+        }
+    } catch (error) {
+        document.getElementById('base-models-list').innerHTML =
+            '<div style="padding: 20px; color: #c33;">Error loading base models</div>';
+    }
+}
+
+
+function populateTimeConfigFilter() {
+    const filter = document.getElementById('time-config-filter');
+    const configs = new Map();
+
+    allBaseModels.forEach(model => {
+        if (model.use_time_calibration) {
+            const key = `${model.begin_year}-${(model.calibration_years || []).join(',')}-${model.evaluation_year}`;
+            if (!configs.has(key)) {
+                configs.set(key, {
+                    begin_year: model.begin_year,
+                    calibration_years: model.calibration_years,
+                    evaluation_year: model.evaluation_year,
+                    label: `Begin: ${model.begin_year}, Cal: ${(model.calibration_years || []).join(',')}, Eval: ${model.evaluation_year}`
+                });
+            }
+        }
+    });
+
+    filter.innerHTML = '<option value="">All Configurations</option>';
+    configs.forEach((config, key) => {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = config.label;
+        filter.appendChild(option);
+    });
+}
+
+// ========== Rendering ==========
+
+function renderBaseModels() {
+    const container = document.getElementById('base-models-list');
+    const searchText = document.getElementById('base-model-search').value.toLowerCase();
+    const timeConfigFilter = document.getElementById('time-config-filter').value;
+
+    // Get selected time config from first selected model (if any)
+    let referenceTimeConfig = null;
+    if (selectedBaseModelIds.size > 0) {
+        const firstSelectedId = Array.from(selectedBaseModelIds)[0];
+        const firstSelected = allBaseModels.find(m => m._id === firstSelectedId);
+        if (firstSelected && firstSelected.use_time_calibration) {
+            referenceTimeConfig = {
+                begin_year: firstSelected.begin_year,
+                calibration_years: firstSelected.calibration_years,
+                evaluation_year: firstSelected.evaluation_year
+            };
+        }
+    }
+
+    let filteredModels = allBaseModels.filter(model => {
+        // Search filter
+        if (searchText) {
+            const name = (model.name || '').toLowerCase();
+            const type = (model.model_type || '').toLowerCase();
+            if (!name.includes(searchText) && !type.includes(searchText)) {
+                return false;
+            }
+        }
+
+        // Time config filter
+        if (timeConfigFilter) {
+            const key = `${model.begin_year}-${(model.calibration_years || []).join(',')}-${model.evaluation_year}`;
+            if (key !== timeConfigFilter) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    if (filteredModels.length === 0) {
+        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No base models found</div>';
+        return;
+    }
+
+    container.innerHTML = filteredModels.map(model => {
+        const isSelected = selectedBaseModelIds.has(model._id);
+        const isCompatible = checkTimeConfigCompatibility(model, referenceTimeConfig);
+
+        return `
+            <div class="base-model-item ${isSelected ? 'selected' : ''} ${!isCompatible ? 'incompatible' : ''}"
+                 data-model-id="${model._id}"
+                 onclick="toggleBaseModel('${model._id}', ${isCompatible})">
+                <input type="checkbox" class="base-model-checkbox"
+                       ${isSelected ? 'checked' : ''}
+                       ${!isCompatible ? 'disabled' : ''}>
+                <div class="base-model-info">
+                    <div class="base-model-name">${escapeHtml(model.name || model.model_type)}</div>
+                    <div class="base-model-meta">
+                        ${model.model_type} | C=${model.c_value || 'N/A'} | ${model.feature_count || 0} features
+                        ${!isCompatible ? '<span style="color: #c33;"> (incompatible time config)</span>' : ''}
+                    </div>
+                    <div class="base-model-metrics">
+                        <span class="base-model-metric">Acc: ${formatMetric(model.accuracy)}</span>
+                        <span class="base-model-metric">LogLoss: ${formatMetric(model.log_loss)}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    updateSelectedBaseCount();
+}
+
+function renderEnsembles() {
+    const container = document.getElementById('ensembles-list');
+
+    if (allEnsembles.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h4>No Ensembles Yet</h4>
+                <p>Click "+ New Ensemble" to create your first ensemble.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Apply filters
+    const metaTypeFilter = document.getElementById('filter-meta-type').value;
+    const stackingFilter = document.getElementById('filter-stacking').value;
+    const trainedFilter = document.getElementById('filter-trained').value;
+    const sortBy = document.getElementById('sort-ensembles').value;
+
+    let filtered = allEnsembles.filter(e => {
+        if (metaTypeFilter && e.model_type !== metaTypeFilter) return false;
+
+        const stackingMode = (e.ensemble_use_disagree || e.ensemble_use_conf || (e.ensemble_meta_features?.length > 0)) ? 'informed' : 'naive';
+        if (stackingFilter && stackingMode !== stackingFilter) return false;
+
+        const isTrained = !!e.ensemble_run_id;
+        if (trainedFilter === 'trained' && !isTrained) return false;
+        if (trainedFilter === 'untrained' && isTrained) return false;
+
+        return true;
+    });
+
+    // Apply sort
+    filtered.sort((a, b) => {
+        switch (sortBy) {
+            case 'updated_desc':
+                return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+            case 'updated_asc':
+                return new Date(a.updated_at || 0) - new Date(b.updated_at || 0);
+            case 'accuracy_desc':
+                return (b.accuracy || 0) - (a.accuracy || 0);
+            case 'accuracy_asc':
+                return (a.accuracy || 0) - (b.accuracy || 0);
+            case 'base_count_desc':
+                return (b.ensemble_models?.length || 0) - (a.ensemble_models?.length || 0);
+            case 'base_count_asc':
+                return (a.ensemble_models?.length || 0) - (b.ensemble_models?.length || 0);
+            default:
+                return 0;
+        }
+    });
+
+    container.innerHTML = filtered.map(ensemble => renderEnsembleCard(ensemble)).join('');
+}
+
+function renderMetaFeatureRankings(ensemble) {
+    const arr = ensemble.features_ranked;
+    if (!arr || !Array.isArray(arr) || arr.length === 0) return '';
+
+    const contentId = `meta-rankings-${ensemble._id}`;
+    const maxScore = Math.max(...arr.map(f => Math.abs(f.score || 0)), 0.001);
+
+    // Map base model IDs to names for friendlier display of p_* features
+    const modelNameMap = {};
+    (ensemble.base_models_details || []).forEach(bm => {
+        // features_ranked uses names like p_ModelName_Suffix
+        if (bm.name) modelNameMap[bm._id] = bm.name;
+    });
+
+    const items = arr.map(f => {
+        const pct = Math.round(Math.abs(f.score || 0) / maxScore * 100);
+        const isPrediction = f.name.startsWith('p_');
+        const scoreStr = (f.score !== null && f.score !== undefined && typeof f.score === 'number')
+            ? f.score.toFixed(4) : '';
+        return `<div class="meta-ranking-item">
+            <span class="rank">${f.rank}.</span>
+            <span class="name ${isPrediction ? 'is-prediction' : ''}">${escapeHtml(f.name)}</span>
+            <span class="bar-wrap"><span class="bar" style="width: ${pct}%"></span></span>
+            <span class="score">${scoreStr}</span>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="meta-rankings-section">
+            <button class="meta-rankings-toggle" onclick="event.stopPropagation(); toggleMetaRankings(this, '${contentId}')">
+                Meta-Feature Rankings (${arr.length}) <span class="chev">&#9660;</span>
+            </button>
+            <div class="meta-rankings-content" id="${contentId}">
+                ${items}
+            </div>
+        </div>
+    `;
+}
+
+function toggleMetaRankings(btnEl, contentId) {
+    const content = document.getElementById(contentId);
+    if (!content) return;
+    const isExpanded = window.getComputedStyle(content).display !== 'none';
+    content.style.display = isExpanded ? 'none' : 'block';
+    btnEl.classList.toggle('expanded', !isExpanded);
+}
+
+function renderBaseModelFeatures(bm) {
+    const arr = bm.features_ranked;
+    if (!arr || !Array.isArray(arr) || arr.length === 0) return '';
+
+    const contentId = `bm-features-${bm._id}`;
+    const items = arr.map(f => {
+        const score = (f.score !== null && f.score !== undefined && typeof f.score === 'number')
+            ? f.score.toFixed(4) : '';
+        return `<div class="base-model-feature-item">
+            <span class="rank">${f.rank}.</span>
+            <span class="name">${escapeHtml(f.name)}</span>
+            ${score ? `<span class="score">${score}</span>` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="base-model-features-section">
+            <button class="base-model-features-toggle" onclick="event.stopPropagation(); toggleBaseModelFeatures(this, '${contentId}')">
+                Features (${arr.length}) <span class="chev">&#9660;</span>
+            </button>
+            <div class="base-model-features-content" id="${contentId}">
+                ${items}
+            </div>
+        </div>
+    `;
+}
+
+function toggleBaseModelFeatures(btnEl, contentId) {
+    const content = document.getElementById(contentId);
+    if (!content) return;
+    const isExpanded = window.getComputedStyle(content).display !== 'none';
+    content.style.display = isExpanded ? 'none' : 'block';
+    btnEl.classList.toggle('expanded', !isExpanded);
+}
+
+function renderEnsembleCard(ensemble) {
+    const isTrained = !!ensemble.ensemble_run_id;
+    const isSelected = ensemble.selected;
+    const stackingMode = (ensemble.ensemble_use_disagree || ensemble.ensemble_use_conf || (ensemble.ensemble_meta_features?.length > 0)) ? 'Informed' : 'Naive';
+
+    const baseModelsHtml = (ensemble.base_models_details || []).map(bm => `
+        <div class="base-model-card">
+            <div class="base-model-card-header">
+                <div>
+                    <div class="base-model-card-title">${escapeHtml(bm.name || bm.model_type)}</div>
+                    <div class="base-model-card-type">${bm.model_type} | C=${bm.c_value || 'N/A'}</div>
+                </div>
+                <div class="base-model-card-actions">
+                    <button class="btn btn-small btn-retrain" onclick="retrainBaseModel('${ensemble._id}', '${bm._id}', '${escapeHtml(bm.name || bm.model_type).replace(/'/g, "&#39;")}')" title="Retrain this base model with current settings">Retrain</button>
+                    <button class="btn btn-small" onclick="openEditBaseModelModal('${ensemble._id}', '${bm._id}')" title="Edit base model config">Edit</button>
+                    <button class="btn btn-small btn-danger" onclick="removeBaseModel('${ensemble._id}', '${bm._id}')" title="Remove from ensemble">Remove</button>
+                </div>
+            </div>
+            <div class="base-model-card-metrics">
+                <span class="base-metric"><span class="base-metric-label">Acc:</span>${formatMetric(bm.accuracy)}</span>
+                <span class="base-metric"><span class="base-metric-label">LogLoss:</span>${formatMetric(bm.log_loss)}</span>
+                <span class="base-metric"><span class="base-metric-label">Brier:</span>${formatMetric(bm.brier_score)}</span>
+            </div>
+            ${bm.training_stats && (bm.training_stats.train_games || bm.training_stats.calibration_games || bm.training_stats.eval_games) ? `
+            <div class="base-model-card-metrics" style="margin-top: 4px;">
+                <span class="base-metric"><span class="base-metric-label">Train:</span>${bm.training_stats.train_games ?? 'N/A'} games</span>
+                <span class="base-metric"><span class="base-metric-label">Cal:</span>${bm.training_stats.calibration_games ?? 'N/A'} games</span>
+                <span class="base-metric"><span class="base-metric-label">Eval:</span>${bm.training_stats.eval_games ?? 'N/A'} games</span>
+            </div>
+            ` : ''}
+            ${renderBaseModelFeatures(bm)}
+        </div>
+    `).join('') || '<div style="color: #666; font-style: italic;">Base model details not loaded</div>';
+
+    return `
+        <div class="ensemble-card ${!isTrained ? 'untrained' : ''} ${isSelected ? 'selected-ensemble' : ''}" data-ensemble-id="${ensemble._id}">
+            <div class="ensemble-header">
+                <div class="ensemble-title">
+                    <div class="ensemble-name">
+                        <span class="name-display" onclick="editEnsembleName('${ensemble._id}', '${escapeHtml(ensemble.name || 'Unnamed Ensemble').replace(/'/g, "&#39;")}')">${escapeHtml(ensemble.name || 'Unnamed Ensemble')}</span>
+                        ${isTrained ? '<span class="ensemble-badge badge-trained">Trained</span>' : '<span class="ensemble-badge badge-untrained">Untrained</span>'}
+                        ${isSelected ? '<span class="ensemble-badge badge-selected">Selected</span>' : ''}
+                    </div>
+                    <div class="ensemble-meta">
+                        ${ensemble.model_type || 'LogisticRegression'} meta-model | ${stackingMode} stacking | ${ensemble.ensemble_models?.length || 0} base models
+                    </div>
+                </div>
+                <div class="ensemble-actions">
+                    <button class="btn btn-small btn-copy" onclick="copyEnsembleDetails('${ensemble._id}')" title="Copy ensemble details to clipboard">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                    <button class="btn btn-small" onclick="editEnsemble('${ensemble._id}')" title="Edit ensemble">Edit</button>
+                    <button class="btn btn-small" onclick="openCalibrationModal('${ensemble._id}')" title="Update time calibration for all base models">Update Cal</button>
+                    <button class="btn btn-small btn-success" onclick="selectEnsemble('${ensemble._id}')" ${isSelected ? 'disabled' : ''}>
+                        ${isSelected ? 'Selected' : 'Select'}
+                    </button>
+                    <button class="btn btn-small btn-danger" onclick="deleteEnsemble('${ensemble._id}')" title="Delete ensemble">Delete</button>
+                </div>
+            </div>
+
+            ${isTrained ? `
+                <div class="ensemble-metrics">
+                    <div class="ensemble-metric">
+                        <div class="metric-label">Accuracy</div>
+                        <div class="metric-value">${formatMetric(ensemble.accuracy, true)}</div>
+                    </div>
+                    <div class="ensemble-metric">
+                        <div class="metric-label">Log Loss</div>
+                        <div class="metric-value">${formatMetric(ensemble.log_loss)}</div>
+                    </div>
+                    <div class="ensemble-metric">
+                        <div class="metric-label">Brier Score</div>
+                        <div class="metric-value">${formatMetric(ensemble.brier_score)}</div>
+                    </div>
+                </div>
+            ` : ''}
+
+            <div class="time-config-display">
+                <strong>Time Config:</strong>
+                Method: ${ensemble.calibration_method || 'N/A'} |
+                Begin: ${ensemble.begin_year || 'N/A'} |
+                Calibration: ${(ensemble.calibration_years || []).join(', ') || 'N/A'} |
+                Evaluation: ${ensemble.evaluation_year || 'N/A'} |
+                Min Games: ${ensemble.min_games_played || 0}${ensemble.exclude_seasons?.length ? ' | Exclude: ' + ensemble.exclude_seasons.join(', ') : ''}
+            </div>
+            ${ensemble.meta_calibration_method ? `
+            <div class="time-config-display" style="margin-top: 4px;">
+                <strong>Meta Calibration:</strong>
+                ${ensemble.meta_calibration_method} |
+                Train: ${(ensemble.meta_train_years || []).join(', ') || 'N/A'} |
+                Cal: ${(ensemble.meta_calibration_years || []).join(', ') || 'N/A'} |
+                Eval: ${ensemble.meta_evaluation_year || 'N/A'}
+            </div>
+            ` : ''}
+
+            ${renderMetaFeatureRankings(ensemble)}
+
+            <div class="base-models-section">
+                <button class="base-models-toggle" onclick="toggleBaseModelsSection(this)">
+                    <span class="toggle-icon">&#9660;</span>
+                    View Base Models (${ensemble.ensemble_models?.length || 0})
+                </button>
+                <div class="base-models-content">
+                    ${baseModelsHtml}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ========== Modal Open/Close ==========
+
+function openEnsembleModal(mode, ensembleId) {
+    if (mode === 'edit' && ensembleId) {
+        selectedEnsembleId = ensembleId;
+        const ensemble = allEnsembles.find(e => e._id === ensembleId);
+        if (ensemble) loadEnsembleIntoForm(ensemble);
+    } else {
+        selectedEnsembleId = null;
+        resetForm();
+    }
+    updateModeUI();
+    document.getElementById('ensemble-config-modal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeEnsembleModal() {
+    document.getElementById('ensemble-config-modal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// ========== Event Handlers ==========
+
+function loadEnsembleIntoForm(ensemble) {
+    // Set name
+    document.getElementById('ensemble-name').value = ensemble.name || '';
+    // Set meta-model config
+    document.getElementById('meta-model-type').value = ensemble.model_type || 'LogisticRegression';
+    onMetaModelTypeChange();
+
+    // Set stacking mode from saved value (fallback to inference for old ensembles)
+    let stackingMode = ensemble.stacking_mode;
+    if (!stackingMode) {
+        // Fallback for old ensembles that don't have stacking_mode saved
+        const isInformed = ensemble.ensemble_use_disagree || ensemble.ensemble_use_conf || (ensemble.ensemble_meta_features?.length > 0);
+        stackingMode = isInformed ? 'informed' : 'naive';
+    }
+    document.getElementById('stacking-mode').value = stackingMode;
+    onStackingModeChange();
+
+    // Always load the meta-feature settings (they'll be hidden if mode is naive)
+    document.getElementById('use-disagree').checked = ensemble.ensemble_use_disagree || false;
+    document.getElementById('use-conf').checked = ensemble.ensemble_use_conf || false;
+    document.getElementById('use-logit').checked = ensemble.ensemble_use_logit || false;
+    document.getElementById('custom-meta-features').value = (ensemble.ensemble_meta_features || []).join(', ');
+
+    // Meta-model calibration
+    const hasMetaCal = !!ensemble.meta_calibration_method;
+    document.getElementById('enable-meta-calibration').checked = hasMetaCal;
+    onMetaCalibrationToggle();
+    if (hasMetaCal) {
+        document.getElementById('meta-cal-method').value = ensemble.meta_calibration_method || 'isotonic';
+        document.getElementById('meta-train-years').value = (ensemble.meta_train_years || []).join(', ');
+        document.getElementById('meta-cal-years').value = (ensemble.meta_calibration_years || []).join(', ');
+        document.getElementById('meta-eval-year').value = ensemble.meta_evaluation_year || '';
+    }
+
+    // Set selected base models
+    selectedBaseModelIds = new Set(ensemble.ensemble_models || []);
+    renderBaseModels();
+}
+
+function resetForm() {
+    selectedBaseModelIds = new Set();
+    document.getElementById('ensemble-name').value = '';
+    document.getElementById('meta-model-type').value = 'LogisticRegression';
+    document.getElementById('meta-c-value').value = '0.1';
+    document.getElementById('stacking-mode').value = 'naive';
+    document.getElementById('use-disagree').checked = false;
+    document.getElementById('use-conf').checked = false;
+    document.getElementById('use-logit').checked = false;
+    document.getElementById('custom-meta-features').value = '';
+    // Meta calibration
+    document.getElementById('enable-meta-calibration').checked = false;
+    document.getElementById('meta-cal-method').value = 'isotonic';
+    document.getElementById('meta-train-years').value = '';
+    document.getElementById('meta-cal-years').value = '';
+    document.getElementById('meta-eval-year').value = '';
+    onMetaCalibrationToggle();
+    onMetaModelTypeChange();
+    onStackingModeChange();
+    renderBaseModels();
+}
+
+function onMetaModelTypeChange() {
+    const type = document.getElementById('meta-model-type').value;
+    const cValueGroup = document.getElementById('c-value-group');
+    cValueGroup.style.display = (type === 'LogisticRegression' || type === 'SVM') ? 'block' : 'none';
+}
+
+function onStackingModeChange() {
+    const mode = document.getElementById('stacking-mode').value;
+    document.getElementById('meta-features-section').style.display = mode === 'informed' ? 'block' : 'none';
+}
+
+function onMetaCalibrationToggle() {
+    const enabled = document.getElementById('enable-meta-calibration').checked;
+    document.getElementById('meta-calibration-fields').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleBaseModel(modelId, isCompatible) {
+    if (!isCompatible) return;
+
+    if (selectedBaseModelIds.has(modelId)) {
+        selectedBaseModelIds.delete(modelId);
+    } else {
+        selectedBaseModelIds.add(modelId);
+    }
+
+    renderBaseModels();
+}
+
+function updateSelectedBaseCount() {
+    document.getElementById('selected-base-count').textContent = `(${selectedBaseModelIds.size} selected)`;
+}
+
+function filterBaseModels() {
+    renderBaseModels();
+}
+
+function toggleBaseModelsSection(btn) {
+    const content = btn.nextElementSibling;
+    const icon = btn.querySelector('.toggle-icon');
+
+    content.classList.toggle('expanded');
+    icon.classList.toggle('expanded');
+}
+
+function applyFiltersAndSort() {
+    renderEnsembles();
+}
+
+function resetFiltersAndSort() {
+    document.getElementById('filter-meta-type').value = '';
+    document.getElementById('filter-stacking').value = '';
+    document.getElementById('filter-trained').value = '';
+    document.getElementById('sort-ensembles').value = 'updated_desc';
+    applyFiltersAndSort();
+}
+
+// ========== Mode UI ==========
+
+function updateModeUI() {
+    const header = document.getElementById('form-mode-header');
+    const primaryBtn = document.getElementById('primary-action-btn');
+    const secondaryBtn = document.getElementById('secondary-action-btn');
+    const tertiaryBtn = document.getElementById('tertiary-action-btn');
+
+    if (selectedEnsembleId) {
+        // Edit mode
+        const ensemble = allEnsembles.find(e => e._id === selectedEnsembleId);
+        const name = ensemble?.name || 'Unnamed';
+        header.textContent = 'Editing: ' + name;
+
+        primaryBtn.innerHTML = 'Save &amp; Retrain';
+        secondaryBtn.textContent = 'Save Changes';
+
+        // Show tertiary only for already-trained ensembles
+        const isTrained = ensemble && !!ensemble.ensemble_run_id;
+        tertiaryBtn.style.display = isTrained ? 'inline-block' : 'none';
+    } else {
+        // Create mode
+        header.textContent = 'New Ensemble';
+
+        primaryBtn.innerHTML = 'Save &amp; Train';
+        secondaryBtn.textContent = 'Save Draft';
+        tertiaryBtn.style.display = 'none';
+    }
+}
+
+function startNewEnsemble() {
+    openEnsembleModal('create');
+}
+
+// ========== API Actions ==========
+
+async function saveEnsembleConfig(config) {
+    /** Shared save helper: validate then create or update. Returns ensemble_id or null. */
+    // Validate
+    const valResp = await fetch('/api/ensembles/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+    });
+    const valData = await valResp.json();
+    if (!valData.success) {
+        alert('Validation failed: ' + valData.error);
+        return null;
+    }
+
+    // Save: update existing or create new
+    const saveUrl = selectedEnsembleId
+        ? `/api/ensembles/${selectedEnsembleId}`
+        : '/api/model-configs/create-ensemble';
+    const saveMethod = selectedEnsembleId ? 'PUT' : 'POST';
+
+    const saveResp = await fetch(saveUrl, {
+        method: saveMethod,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+    });
+    const saveData = await saveResp.json();
+
+    if (!saveData.success) {
+        alert('Failed to save ensemble: ' + saveData.error);
+        return null;
+    }
+
+    // If we just created a new ensemble, track its ID
+    if (saveData.ensemble_id && !selectedEnsembleId) {
+        selectedEnsembleId = saveData.ensemble_id;
+    }
+
+    return saveData.ensemble_id || selectedEnsembleId;
+}
+
+async function startTraining(config, ensembleId) {
+    /** Shared training helper: kicks off background training job. */
+    config.model_types = [config.meta_model_type];
+    config.c_values = [parseFloat(config.meta_c_value)];
+
+    // Always pass ensemble_id so the backend updates the correct doc
+    if (ensembleId) {
+        config.ensemble_id = ensembleId;
+    }
+
+    showProgress('Starting ensemble training...');
+
+    const response = await fetch('/api/model-config/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+    });
+    const data = await response.json();
+
+    if (data.success && data.job_id) {
+        currentJobId = data.job_id;
+        pollJobProgress();
+    } else {
+        hideProgress();
+        alert('Failed to start training: ' + (data.error || 'Unknown error'));
+    }
+}
+
+async function onPrimaryAction() {
+    // Save & Train (create) or Save & Retrain (edit)
+    if (selectedBaseModelIds.size < 2) {
+        alert('Please select at least 2 base models for the ensemble.');
+        return;
+    }
+
+    const config = gatherFormConfig();
+    try {
+        const ensembleId = await saveEnsembleConfig(config);
+        if (!ensembleId) return;
+        closeEnsembleModal();
+        await loadEnsembles();
+        await startTraining(config, ensembleId);
+    } catch (error) {
+        hideProgress();
+        alert('Error: ' + error.message);
+    }
+}
+
+async function onSecondaryAction() {
+    // Save Draft (create) or Save Changes (edit)
+    if (selectedBaseModelIds.size < 2) {
+        alert('Please select at least 2 base models for the ensemble.');
+        return;
+    }
+
+    const config = gatherFormConfig();
+    try {
+        const ensembleId = await saveEnsembleConfig(config);
+        if (!ensembleId) return;
+        closeEnsembleModal();
+        await loadEnsembles();
+    } catch (error) {
+        alert('Error saving ensemble: ' + error.message);
+    }
+}
+
+async function onTertiaryAction() {
+    // Retrain Meta Only (edit mode, trained ensembles)
+    if (!selectedEnsembleId) {
+        alert('Please select an existing ensemble first.');
+        return;
+    }
+
+    try {
+        closeEnsembleModal();
+        showProgress('Retraining meta-model...');
+
+        const response = await fetch(`/api/ensembles/${selectedEnsembleId}/retrain-meta`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(gatherFormConfig())
+        });
+        const data = await response.json();
+
+        if (data.success && data.job_id) {
+            currentJobId = data.job_id;
+            pollJobProgress();
+        } else {
+            hideProgress();
+            alert('Failed to retrain meta-model: ' + data.error);
+        }
+    } catch (error) {
+        hideProgress();
+        alert('Error retraining meta-model: ' + error.message);
+    }
+}
+
+async function retrainBaseModel(ensembleId, baseModelId, modelName) {
+    if (!confirm(`Retrain base model "${modelName}"?\n\nThis will retrain the model with its current settings, then retrain the ensemble meta-model.`)) {
+        return;
+    }
+
+    try {
+        showProgress(`Retraining base model: ${modelName}...`);
+
+        const leaguePrefix = window.location.pathname.split('/')[1];
+        const response = await fetch(`/${leaguePrefix}/api/ensembles/${ensembleId}/retrain-base/${baseModelId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (data.success && data.job_id) {
+            currentJobId = data.job_id;
+            pollJobProgress();
+        } else {
+            hideProgress();
+            alert('Failed to start retraining: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        hideProgress();
+        alert('Error starting retrain: ' + error.message);
+    }
+}
+
+async function removeBaseModel(ensembleId, baseModelId) {
+    if (!confirm('Remove this base model from the ensemble? The ensemble will need to be retrained.')) {
+        return;
+    }
+
+    try {
+        const ensemble = allEnsembles.find(e => e._id === ensembleId);
+        if (!ensemble) return;
+
+        const newModels = (ensemble.ensemble_models || []).filter(id => id !== baseModelId);
+        if (newModels.length < 2) {
+            alert('Ensemble must have at least 2 base models.');
+            return;
+        }
+
+        const response = await fetch(`/api/ensembles/${ensembleId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ensemble_models: newModels })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            alert('Base model removed. Please retrain the ensemble.');
+            loadEnsembles();
+        } else {
+            alert('Failed to remove base model: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error removing base model: ' + error.message);
+    }
+}
+
+function editEnsemble(ensembleId) {
+    openEnsembleModal('edit', ensembleId);
+}
+
+async function selectEnsemble(ensembleId) {
+    try {
+        const response = await fetch(`/api/model-configs/${ensembleId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selected: true })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            loadEnsembles();
+        } else {
+            alert('Failed to select ensemble: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error selecting ensemble: ' + error.message);
+    }
+}
+
+async function deleteEnsemble(ensembleId) {
+    if (!confirm('Are you sure you want to delete this ensemble?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/model-configs/${ensembleId}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            if (selectedEnsembleId === ensembleId) {
+                selectedEnsembleId = null;
+                closeEnsembleModal();
+            }
+            loadEnsembles();
+        } else {
+            alert('Failed to delete ensemble: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error deleting ensemble: ' + error.message);
+    }
+}
+
+// ========== Progress & Polling ==========
+
+function showProgress(message) {
+    const container = document.getElementById('job-progress-container');
+    container.style.display = 'block';
+    document.getElementById('job-progress-percent').textContent = '0%';
+    document.getElementById('job-progress-bar').style.width = '0%';
+    document.getElementById('job-progress-message').textContent = message;
+    document.getElementById('job-error').style.display = 'none';
+}
+
+function hideProgress() {
+    document.getElementById('job-progress-container').style.display = 'none';
+    if (jobPollInterval) {
+        clearInterval(jobPollInterval);
+        jobPollInterval = null;
+    }
+}
+
+function pollJobProgress() {
+    if (jobPollInterval) clearInterval(jobPollInterval);
+
+    jobPollInterval = setInterval(async () => {
+        if (!currentJobId) {
+            hideProgress();
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/jobs/${currentJobId}`);
+            const data = await response.json();
+
+            if (data.success) {
+                const job = data.job;
+                const progress = job.progress || 0;
+
+                document.getElementById('job-progress-percent').textContent = `${progress}%`;
+                document.getElementById('job-progress-bar').style.width = `${progress}%`;
+                document.getElementById('job-progress-message').textContent = job.message || 'Processing...';
+
+                if (job.status === 'completed') {
+                    hideProgress();
+                    currentJobId = null;
+                    loadEnsembles();
+                } else if (job.status === 'failed') {
+                    document.getElementById('job-error').style.display = 'block';
+                    document.getElementById('job-error').textContent = job.error || 'Training failed';
+                    clearInterval(jobPollInterval);
+                    jobPollInterval = null;
+                }
+            }
+        } catch (error) {
+            console.error('Error polling job:', error);
+        }
+    }, 1500);
+}
+
+// ========== Calibration Modal ==========
+
+function openCalibrationModal(ensembleId) {
+    const ensemble = allEnsembles.find(e => e._id === ensembleId);
+    if (!ensemble) { alert('Ensemble not found'); return; }
+
+    document.getElementById('cal-modal-ensemble-id').value = ensembleId;
+    document.getElementById('cal-method').value = ensemble.calibration_method || 'isotonic';
+    document.getElementById('cal-begin-year').value = ensemble.begin_year || 2010;
+    document.getElementById('cal-years').value = (ensemble.calibration_years || []).join(', ');
+    document.getElementById('cal-eval-year').value = ensemble.evaluation_year || 2024;
+    document.getElementById('cal-exclude').value = (ensemble.exclude_seasons || []).join(', ');
+    document.getElementById('cal-min-games').value = ensemble.min_games_played != null ? ensemble.min_games_played : 15;
+
+    const modal = document.getElementById('calibration-modal');
+    modal.style.display = 'flex';
+}
+
+function closeCalibrationModal() {
+    document.getElementById('calibration-modal').style.display = 'none';
+}
+
+async function submitCalibrationUpdate() {
+    const ensembleId = document.getElementById('cal-modal-ensemble-id').value;
+    const beginYear = parseInt(document.getElementById('cal-begin-year').value);
+    const evalYear = parseInt(document.getElementById('cal-eval-year').value);
+    const calMethod = document.getElementById('cal-method').value;
+
+    const calYearsStr = document.getElementById('cal-years').value.trim();
+    const calibrationYears = calYearsStr ? calYearsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
+
+    const excludeStr = document.getElementById('cal-exclude').value.trim();
+    const excludeSeasons = excludeStr ? excludeStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
+
+    const minGamesRaw = document.getElementById('cal-min-games').value;
+    const minGamesPlayed = minGamesRaw !== '' ? parseInt(minGamesRaw) : null;
+
+    if (!beginYear || calibrationYears.length === 0 || !evalYear) {
+        alert('Begin Year, Calibration Years, and Evaluation Year are required.');
+        return;
+    }
+
+    if (beginYear >= Math.min(...calibrationYears)) {
+        alert('Begin Year must be before the earliest Calibration Year.');
+        return;
+    }
+
+    closeCalibrationModal();
+    showProgress('Starting recalibration...');
+
+    try {
+        const leaguePrefix = window.location.pathname.split('/')[1];
+        const url = `/${leaguePrefix}/api/ensembles/${ensembleId}/update-calibration`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                begin_year: beginYear,
+                calibration_years: calibrationYears,
+                evaluation_year: evalYear,
+                calibration_method: calMethod,
+                exclude_seasons: excludeSeasons.length > 0 ? excludeSeasons : null,
+                min_games_played: minGamesPlayed,
+            })
+        });
+        const data = await response.json();
+
+        if (data.success && data.job_id) {
+            currentJobId = data.job_id;
+            pollJobProgress();
+        } else {
+            hideProgress();
+            alert('Failed to start recalibration: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        hideProgress();
+        alert('Error starting recalibration: ' + error.message);
+    }
+}
+
+// ========== Utilities ==========
+
+function gatherFormConfig() {
+    const stackingMode = document.getElementById('stacking-mode').value;
+    const isNaive = stackingMode === 'naive';
+
+    const customFeatures = isNaive ? [] : document.getElementById('custom-meta-features').value
+        .split(',')
+        .map(f => f.trim())
+        .filter(f => f);
+
+    const config = {
+        ensemble: true,
+        name: document.getElementById('ensemble-name').value.trim() || undefined,
+        ensemble_models: Array.from(selectedBaseModelIds),
+        ensemble_meta_features: customFeatures,
+        ensemble_use_disagree: isNaive ? false : document.getElementById('use-disagree').checked,
+        ensemble_use_conf: isNaive ? false : document.getElementById('use-conf').checked,
+        ensemble_use_logit: document.getElementById('use-logit').checked,
+        meta_model_type: document.getElementById('meta-model-type').value,
+        meta_c_value: document.getElementById('meta-c-value').value,
+        model_type: document.getElementById('meta-model-type').value,
+        best_c_value: parseFloat(document.getElementById('meta-c-value').value) || null,
+        stacking_mode: stackingMode,
+        force_rebuild_dataset: document.getElementById('force-rebuild-dataset').checked
+    };
+
+    // Meta-model calibration (only when enabled)
+    const metaCalEnabled = document.getElementById('enable-meta-calibration').checked;
+    if (metaCalEnabled) {
+        config.meta_calibration_method = document.getElementById('meta-cal-method').value;
+        const trainYears = document.getElementById('meta-train-years').value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        const calYears = document.getElementById('meta-cal-years').value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        const evalYear = parseInt(document.getElementById('meta-eval-year').value);
+        if (trainYears.length) config.meta_train_years = trainYears;
+        if (calYears.length) config.meta_calibration_years = calYears;
+        if (!isNaN(evalYear)) config.meta_evaluation_year = evalYear;
+    } else {
+        config.meta_calibration_method = null;
+        config.meta_train_years = null;
+        config.meta_calibration_years = null;
+        config.meta_evaluation_year = null;
+    }
+
+    return config;
+}
+
+function checkTimeConfigCompatibility(model, referenceConfig) {
+    if (!referenceConfig) return true;
+    if (!model.use_time_calibration) return false;
+
+    return model.begin_year === referenceConfig.begin_year &&
+           JSON.stringify(model.calibration_years) === JSON.stringify(referenceConfig.calibration_years) &&
+           model.evaluation_year === referenceConfig.evaluation_year;
+}
+
+function formatMetric(value, asPercent = false) {
+    if (value === null || value === undefined || isNaN(value)) return 'N/A';
+    if (asPercent) return parseFloat(value).toFixed(2) + '%';
+    return parseFloat(value).toFixed(4);
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function editEnsembleName(ensembleId, currentName) {
+    const card = document.querySelector(`.ensemble-card[data-ensemble-id="${ensembleId}"]`);
+    if (!card) return;
+    const nameDisplay = card.querySelector('.ensemble-name .name-display');
+    if (!nameDisplay) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.style.cssText = 'width: 260px; padding: 4px 8px; border: 1px solid #667eea; border-radius: 4px; font-size: 1em; font-weight: 600;';
+
+    const saveName = async () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            try {
+                const leaguePrefix = window.location.pathname.split('/')[1];
+                const response = await fetch(`/${leaguePrefix}/api/model-configs/${ensembleId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: newName })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    const ens = allEnsembles.find(e => e._id === ensembleId);
+                    if (ens) ens.name = newName;
+                    renderEnsembles();
+                } else {
+                    alert('Error updating name: ' + (data.error || 'Unknown error'));
+                    nameDisplay.textContent = currentName;
+                }
+            } catch (error) {
+                alert('Error updating name: ' + error.message);
+                nameDisplay.textContent = currentName;
+            }
+        } else {
+            nameDisplay.textContent = currentName;
+        }
+        nameDisplay.style.display = '';
+        input.remove();
+    };
+
+    input.addEventListener('blur', saveName);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            saveName();
+        } else if (e.key === 'Escape') {
+            nameDisplay.textContent = currentName;
+            nameDisplay.style.display = '';
+            input.remove();
+        }
+    });
+
+    nameDisplay.style.display = 'none';
+    nameDisplay.parentNode.insertBefore(input, nameDisplay);
+    input.focus();
+    input.select();
+}
+
+function showError(message) {
+    console.error(message);
+    document.getElementById('ensembles-list').innerHTML =
+        `<div style="padding: 20px; background: #fee; color: #c33; border-radius: 4px;">${escapeHtml(message)}</div>`;
+}
+
+function copyEnsembleDetails(ensembleId) {
+    const ensemble = allEnsembles.find(e => e._id === ensembleId);
+    if (!ensemble) {
+        alert('Ensemble not found');
+        return;
+    }
+
+    const lines = [];
+    const separator = '─'.repeat(60);
+
+    // Header
+    lines.push(`ENSEMBLE: ${ensemble.name || 'Unnamed Ensemble'}`);
+    lines.push(separator);
+
+    // Ensemble Performance
+    lines.push('');
+    lines.push('ENSEMBLE PERFORMANCE');
+    lines.push('─'.repeat(30));
+    lines.push(`Accuracy:    ${formatMetric(ensemble.accuracy, true)}`);
+    lines.push(`Log Loss:    ${formatMetric(ensemble.log_loss)}`);
+    lines.push(`Brier Score: ${formatMetric(ensemble.brier_score)}`);
+    lines.push(`Std Dev:     ${formatMetric(ensemble.std_dev)}`);
+
+    // Config info
+    lines.push('');
+    lines.push('CONFIGURATION');
+    lines.push('─'.repeat(30));
+    const stackingMode = (ensemble.ensemble_use_disagree || ensemble.ensemble_use_conf || (ensemble.ensemble_meta_features?.length > 0)) ? 'Informed' : 'Naive';
+    lines.push(`Meta-Model:       ${ensemble.model_type || 'LogisticRegression'}`);
+    lines.push(`Stacking Mode:    ${stackingMode}`);
+    lines.push(`Base Models:      ${ensemble.ensemble_models?.length || 0}`);
+    lines.push(`Begin Year:       ${ensemble.begin_year || 'N/A'}`);
+    lines.push(`Calibration:      ${(ensemble.calibration_years || []).join(', ') || 'N/A'}`);
+    lines.push(`Evaluation Year:  ${ensemble.evaluation_year || 'N/A'}`);
+    lines.push(`Min Games:        ${ensemble.min_games_played || 0}`);
+    if (ensemble.meta_calibration_method) {
+        lines.push('');
+        lines.push('META CALIBRATION');
+        lines.push('─'.repeat(30));
+        lines.push(`Method:           ${ensemble.meta_calibration_method}`);
+        lines.push(`Meta Train:       ${(ensemble.meta_train_years || []).join(', ') || 'N/A'}`);
+        lines.push(`Meta Cal:         ${(ensemble.meta_calibration_years || []).join(', ') || 'N/A'}`);
+        lines.push(`Meta Eval:        ${ensemble.meta_evaluation_year || 'N/A'}`);
+    }
+
+    // Base Model Importance (ensemble's features_ranked)
+    if (ensemble.features_ranked && ensemble.features_ranked.length > 0) {
+        lines.push('');
+        lines.push('BASE MODEL IMPORTANCE (Meta-Model Weights)');
+        lines.push('─'.repeat(30));
+
+        // Create a map from model ID suffix to model name
+        const modelIdMap = {};
+        (ensemble.base_models_details || []).forEach(bm => {
+            // The features_ranked uses p_XXXXXXXX format where XXXXXXXX is the last 8 chars of the model ID
+            const idSuffix = bm._id.slice(-8);
+            modelIdMap[`p_${idSuffix}`] = bm.name || bm.model_type;
+        });
+
+        ensemble.features_ranked.forEach((feat, idx) => {
+            const displayName = modelIdMap[feat.name] || feat.name;
+            lines.push(`  ${(idx + 1).toString().padStart(2)}. ${displayName.padEnd(40)} Score: ${formatMetric(feat.score)}`);
+        });
+    }
+
+    // Base Models Details
+    lines.push('');
+    lines.push(separator);
+    lines.push('BASE MODELS');
+    lines.push(separator);
+
+    (ensemble.base_models_details || []).forEach((bm, idx) => {
+        lines.push('');
+        lines.push(`[${idx + 1}] ${bm.name || bm.model_type}`);
+        lines.push('─'.repeat(30));
+        lines.push(`Type:        ${bm.model_type}`);
+        lines.push(`C-Value:     ${bm.c_value || 'N/A'}`);
+        lines.push(`Features:    ${bm.feature_count || 0}`);
+        lines.push(`Accuracy:    ${formatMetric(bm.accuracy, true)}`);
+        lines.push(`Log Loss:    ${formatMetric(bm.log_loss)}`);
+        lines.push(`Brier Score: ${formatMetric(bm.brier_score)}`);
+
+        // Feature importance for this base model
+        if (bm.features_ranked && bm.features_ranked.length > 0) {
+            lines.push('');
+            lines.push('Feature Importance (F-Scores):');
+            const topFeatures = bm.features_ranked.slice(0, 15); // Top 15 features
+            topFeatures.forEach((feat, fIdx) => {
+                lines.push(`  ${(fIdx + 1).toString().padStart(2)}. ${feat.name.padEnd(45)} ${formatMetric(feat.score)}`);
+            });
+            if (bm.features_ranked.length > 15) {
+                lines.push(`  ... and ${bm.features_ranked.length - 15} more features`);
+            }
+        }
+    });
+
+    // Copy to clipboard
+    const text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        // Visual feedback
+        const btn = document.querySelector(`[data-ensemble-id="${ensembleId}"] .btn-copy`);
+        if (btn) {
+            btn.classList.add('copied');
+            btn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            `;
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = `
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                `;
+            }, 2000);
+        }
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+// ========== Edit Base Model Modal ==========
+
+async function openEditBaseModelModal(ensembleId, baseModelId) {
+    document.getElementById('edit-bm-ensemble-id').value = ensembleId;
+    document.getElementById('edit-bm-model-id').value = baseModelId;
+
+    try {
+        const leaguePrefix = window.location.pathname.split('/')[1];
+        const response = await fetch(`/${leaguePrefix}/api/model-configs/${baseModelId}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            alert('Failed to load model config: ' + data.error);
+            return;
+        }
+
+        const config = data.config;
+
+        // Populate form fields
+        document.getElementById('edit-bm-name').value = config.name || '';
+        document.getElementById('edit-bm-model-type').value = config.model_type || 'LogisticRegression';
+        onEditBmModelTypeChange();
+
+        // Set c-value: try to match existing option, otherwise select closest
+        const cVal = config.best_c_value;
+        if (cVal != null) {
+            const sel = document.getElementById('edit-bm-c-value');
+            let matched = false;
+            for (const opt of sel.options) {
+                if (parseFloat(opt.value) === parseFloat(cVal)) {
+                    sel.value = opt.value;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) sel.value = '1.0';
+        }
+
+        // Time settings (read-only)
+        const timeHtml = [
+            `Method: ${config.calibration_method || 'N/A'}`,
+            `Begin: ${config.begin_year || 'N/A'}`,
+            `Calibration: ${(config.calibration_years || []).join(', ') || 'N/A'}`,
+            `Evaluation: ${config.evaluation_year || 'N/A'}`,
+            `Min Games: ${config.min_games_played ?? 15}`,
+            config.exclude_seasons?.length ? `Exclude: ${config.exclude_seasons.join(', ')}` : null,
+        ].filter(Boolean).join(' | ');
+        document.getElementById('edit-bm-time-details').textContent = timeHtml;
+
+        // Render feature sets
+        renderEditModalFeatureSets(config.features || []);
+
+        // Show modal
+        document.getElementById('edit-base-model-modal').style.display = 'block';
+        document.body.style.overflow = 'hidden';
+    } catch (error) {
+        alert('Error loading model config: ' + error.message);
+    }
+}
+
+function closeEditBaseModelModal() {
+    document.getElementById('edit-base-model-modal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function onEditBmModelTypeChange() {
+    const type = document.getElementById('edit-bm-model-type').value;
+    document.getElementById('edit-bm-c-value-group').style.display =
+        (type === 'LogisticRegression' || type === 'SVM') ? 'block' : 'none';
+}
+
+function renderEditModalFeatureSets(selectedFeatures) {
+    const container = document.getElementById('edit-bm-feature-sets');
+    const selectedSet = new Set(selectedFeatures);
+    let html = '';
+
+    for (const [setName, features] of Object.entries(FEATURE_SETS)) {
+        const selectedInSet = features.filter(f => selectedSet.has(f)).length;
+        const allSelected = selectedInSet === features.length;
+        const someSelected = selectedInSet > 0 && !allSelected;
+        const description = FEATURE_SET_DESCRIPTIONS[setName] || '';
+        const displayName = setName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+        html += `
+            <div style="border-bottom:1px solid #eee;">
+                <div style="padding:10px 14px; display:flex; align-items:center; gap:10px; cursor:pointer;"
+                     onclick="toggleEditBmSetExpand('${setName}')">
+                    <input type="checkbox" id="edit-bm-set-${setName}"
+                           ${allSelected ? 'checked' : ''}
+                           onchange="toggleEditBmFeatureSet('${setName}', this.checked); event.stopPropagation();"
+                           style="cursor:pointer;">
+                    <div style="flex:1;">
+                        <strong style="font-size:0.93em;">${displayName}</strong>
+                        <span style="font-size:0.8em; color:#888; margin-left:6px;">${description}</span>
+                    </div>
+                    <span style="background:#667eea; color:white; font-size:0.75em; padding:2px 8px; border-radius:10px; font-weight:600;"
+                          id="edit-bm-count-${setName}">${selectedInSet}/${features.length}</span>
+                    <span class="toggle-icon" id="edit-bm-expand-icon-${setName}" style="font-size:0.8em; transition:transform 0.2s;">&#9660;</span>
+                </div>
+                <div id="edit-bm-features-${setName}" style="display:none; padding:4px 14px 10px 36px; max-height:200px; overflow-y:auto;">
+                    ${features.map(f => `
+                        <label style="display:block; padding:3px 0; font-size:0.88em; cursor:pointer;">
+                            <input type="checkbox" class="edit-bm-feature" data-set="${setName}" value="${f}"
+                                   ${selectedSet.has(f) ? 'checked' : ''}
+                                   onchange="updateEditBmSetCheckbox('${setName}'); updateEditBmFeatureCount()">
+                            ${f}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+
+    // Set indeterminate state for partially selected sets
+    for (const [setName, features] of Object.entries(FEATURE_SETS)) {
+        const cb = document.getElementById(`edit-bm-set-${setName}`);
+        const selectedInSet = features.filter(f => selectedSet.has(f)).length;
+        if (selectedInSet > 0 && selectedInSet < features.length) {
+            cb.indeterminate = true;
+        }
+    }
+
+    updateEditBmFeatureCount();
+}
+
+function toggleEditBmSetExpand(setName) {
+    const el = document.getElementById(`edit-bm-features-${setName}`);
+    const icon = document.getElementById(`edit-bm-expand-icon-${setName}`);
+    const isExpanded = el.style.display !== 'none';
+    el.style.display = isExpanded ? 'none' : 'block';
+    icon.style.transform = isExpanded ? '' : 'rotate(180deg)';
+}
+
+function toggleEditBmFeatureSet(setName, checked) {
+    const checkboxes = document.querySelectorAll(`.edit-bm-feature[data-set="${setName}"]`);
+    checkboxes.forEach(cb => cb.checked = checked);
+
+    const setCb = document.getElementById(`edit-bm-set-${setName}`);
+    setCb.indeterminate = false;
+    setCb.checked = checked;
+
+    updateEditBmSetCount(setName);
+    updateEditBmFeatureCount();
+}
+
+function updateEditBmSetCheckbox(setName) {
+    const checkboxes = document.querySelectorAll(`.edit-bm-feature[data-set="${setName}"]`);
+    const total = checkboxes.length;
+    const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+    const setCb = document.getElementById(`edit-bm-set-${setName}`);
+    setCb.checked = checked === total;
+    setCb.indeterminate = checked > 0 && checked < total;
+
+    updateEditBmSetCount(setName);
+}
+
+function updateEditBmSetCount(setName) {
+    const checkboxes = document.querySelectorAll(`.edit-bm-feature[data-set="${setName}"]`);
+    const total = checkboxes.length;
+    const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+    const badge = document.getElementById(`edit-bm-count-${setName}`);
+    if (badge) badge.textContent = `${checked}/${total}`;
+}
+
+function updateEditBmFeatureCount() {
+    const allChecked = document.querySelectorAll('.edit-bm-feature:checked');
+    document.getElementById('edit-bm-feature-count').textContent = `(${allChecked.length} features selected)`;
+}
+
+// Pencil icon: open feature name entry modal
+document.getElementById('edit-bm-features-pencil').addEventListener('click', function() {
+    const modal = document.getElementById('edit-bm-feature-name-modal');
+    modal.style.display = 'flex';
+    // Pre-populate with currently selected features
+    const current = Array.from(document.querySelectorAll('.edit-bm-feature:checked')).map(cb => cb.value);
+    document.getElementById('edit-bm-feature-names-input').value = current.join('\n');
+    document.getElementById('edit-bm-clear-and-reselect').checked = false;
+});
+
+function applyEditBmFeatureNames() {
+    const input = document.getElementById('edit-bm-feature-names-input').value.trim();
+    if (!input) { alert('Please enter at least one feature name.'); return; }
+
+    const names = input.split(/[,\n]/).map(s => s.trim()).filter(s => s.length > 0);
+    if (names.length === 0) { alert('No valid feature names found.'); return; }
+
+    const allCbs = document.querySelectorAll('.edit-bm-feature');
+    const available = Array.from(allCbs).map(cb => cb.value);
+
+    const matched = [];
+    const notFound = [];
+    names.forEach(name => {
+        const found = available.find(a => a.toLowerCase() === name.toLowerCase());
+        if (found) matched.push(found);
+        else notFound.push(name);
+    });
+
+    if (notFound.length > 0) {
+        const msg = notFound.length <= 5
+            ? `Features not found: ${notFound.join(', ')}`
+            : `${notFound.length} features not found. Check console for details.`;
+        console.warn('Features not found:', notFound);
+        alert(msg);
+    }
+
+    if (matched.length === 0) { alert('No matching features found.'); return; }
+
+    if (document.getElementById('edit-bm-clear-and-reselect').checked) {
+        allCbs.forEach(cb => cb.checked = false);
+    }
+
+    const matchSet = new Set(matched);
+    allCbs.forEach(cb => { if (matchSet.has(cb.value)) cb.checked = true; });
+
+    // Update set checkbox states
+    for (const setName of Object.keys(FEATURE_SETS)) {
+        updateEditBmSetCheckbox(setName);
+    }
+    updateEditBmFeatureCount();
+
+    document.getElementById('edit-bm-feature-name-modal').style.display = 'none';
+    console.log(`Applied ${matched.length} feature(s)${document.getElementById('edit-bm-clear-and-reselect').checked ? ' (cleared first)' : ' (added)'}`);
+}
+
+function gatherEditBmFormData() {
+    const features = Array.from(document.querySelectorAll('.edit-bm-feature:checked')).map(cb => cb.value);
+    const modelType = document.getElementById('edit-bm-model-type').value;
+    const cValue = (modelType === 'LogisticRegression' || modelType === 'SVM')
+        ? parseFloat(document.getElementById('edit-bm-c-value').value)
+        : null;
+
+    return {
+        name: document.getElementById('edit-bm-name').value.trim(),
+        model_type: modelType,
+        features: features,
+        best_c_value: cValue,
+    };
+}
+
+async function saveBaseModelEdits() {
+    const modelId = document.getElementById('edit-bm-model-id').value;
+    const formData = gatherEditBmFormData();
+
+    if (formData.features.length === 0) {
+        alert('Please select at least one feature.');
+        return;
+    }
+
+    try {
+        const leaguePrefix = window.location.pathname.split('/')[1];
+        const response = await fetch(`/${leaguePrefix}/api/model-configs/${modelId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            loadEnsembles();
+            alert('Base model config saved.');
+        } else {
+            alert('Failed to save: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error saving: ' + error.message);
+    }
+}
+
+async function saveAndRetrainBaseModel() {
+    const ensembleId = document.getElementById('edit-bm-ensemble-id').value;
+    const modelId = document.getElementById('edit-bm-model-id').value;
+    const formData = gatherEditBmFormData();
+
+    if (formData.features.length === 0) {
+        alert('Please select at least one feature.');
+        return;
+    }
+
+    try {
+        // First save the edits
+        const leaguePrefix = window.location.pathname.split('/')[1];
+        const saveResponse = await fetch(`/${leaguePrefix}/api/model-configs/${modelId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        const saveData = await saveResponse.json();
+
+        if (!saveData.success) {
+            alert('Failed to save: ' + saveData.error);
+            return;
+        }
+
+        // Close modal and start retrain
+        closeEditBaseModelModal();
+        showProgress('Retraining base model...');
+
+        const retrainResponse = await fetch(`/${leaguePrefix}/api/ensembles/${ensembleId}/retrain-base/${modelId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const retrainData = await retrainResponse.json();
+
+        if (retrainData.success && retrainData.job_id) {
+            currentJobId = retrainData.job_id;
+            pollJobProgress();
+        } else {
+            hideProgress();
+            alert('Failed to start retraining: ' + (retrainData.error || 'Unknown error'));
+        }
+    } catch (error) {
+        hideProgress();
+        alert('Error: ' + error.message);
+    }
+}
+</script>
+
+{% endblock %}

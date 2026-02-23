@@ -19,6 +19,7 @@ from sportscore.pipeline.parallel import (
     ProgressTracker,
     TaskResult,
 )
+from sportscore.pipeline.training_csv import TrainingCSVManager
 
 __all__ = [
     "BasePipeline",
@@ -31,4 +32,5 @@ __all__ = [
     "ParallelStepGroup",
     "ProgressTracker",
     "TaskResult",
+    "TrainingCSVManager",
 ]

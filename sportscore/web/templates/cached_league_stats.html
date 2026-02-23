@@ -1,0 +1,591 @@
+{% extends "base.html" %}
+
+{% block title %}Cached League Stats{% endblock %}
+
+{% block styles %}
+<style>
+    .cache-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .page-header {
+        margin-bottom: 30px;
+    }
+
+    .page-header h1 {
+        margin-bottom: 10px;
+    }
+
+    .page-header p {
+        color: #666;
+        font-size: 16px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .stat-card.secondary {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+
+    .stat-card.tertiary {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .stat-label {
+        font-size: 13px;
+        opacity: 0.9;
+    }
+
+    .section {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 25px;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .section-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+
+    .btn-primary:disabled {
+        background: #a0a0a0;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #5a6268;
+    }
+
+    .btn-danger {
+        background: #dc3545;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #c82333;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .season-select, .date-input {
+        padding: 10px 15px;
+        border: 2px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        min-width: 200px;
+    }
+
+    .checkbox {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 14px;
+        color: #444;
+    }
+
+    .progress-container {
+        display: none;
+        margin-top: 20px;
+    }
+
+    .progress-container.active {
+        display: block;
+    }
+
+    .progress-bar-wrapper {
+        background: #e9ecef;
+        border-radius: 10px;
+        height: 20px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.3s ease;
+        width: 0%;
+    }
+
+    .progress-text {
+        font-size: 14px;
+        color: #666;
+    }
+
+    .table-container {
+        max-height: 650px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th, td {
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+        font-size: 14px;
+        vertical-align: top;
+    }
+
+    th {
+        background: #f8f9fa;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    tr:hover {
+        background: #f8f9fa;
+    }
+
+    .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        background: #e9ecef;
+        color: #444;
+        white-space: nowrap;
+    }
+
+    .pill.snapshot {
+        background: #fff3cd;
+        color: #7a5a00;
+        border: 1px solid #ffe69c;
+    }
+
+    .pill.base {
+        background: #d1e7dd;
+        color: #0f5132;
+        border: 1px solid #badbcc;
+    }
+
+    .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        color: #333;
+    }
+
+    .alert-container {
+        margin-bottom: 15px;
+    }
+
+    .alert {
+        padding: 12px 15px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        font-size: 14px;
+        border: 1px solid transparent;
+    }
+
+    .alert-success { background: #d4edda; color: #155724; border-color: #c3e6cb; }
+    .alert-error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+    .alert-info { background: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+
+    .info-text {
+        color: #666;
+        font-size: 14px;
+        margin-top: 15px;
+    }
+
+    .info-text code {
+        background: #e9ecef;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cache-container">
+    <div class="page-header">
+        <h1>Cached League Stats</h1>
+        <p>Status and controls for the <span class="mono">cached_league_stats</span> collection (used by PER league constants and pace).</p>
+    </div>
+
+    <div class="alert-container" id="alertContainer"></div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="baseCachedCount">{{ summary.base_cached_count | default(0) | int }}</div>
+            <div class="stat-label">Cached Seasons (base)</div>
+        </div>
+        <div class="stat-card secondary">
+            <div class="stat-value" id="snapshotCount">{{ summary.snapshot_count | default(0) | int }}</div>
+            <div class="stat-label">Snapshots (as-of-date)</div>
+        </div>
+        <div class="stat-card tertiary">
+            <div class="stat-value" id="latestComputedAt">{{ summary.latest_computed_at | default('—') }}</div>
+            <div class="stat-label">Latest Computed</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Cache Controls</span>
+        </div>
+
+        <div class="filter-row">
+            <select id="seasonSelect" class="season-select">
+                <option value="">Select season…</option>
+                {% for season in available_seasons %}
+                <option value="{{ season }}">{{ season }}</option>
+                {% endfor %}
+            </select>
+
+            <input type="date" id="asOfDateInput" class="date-input" placeholder="As-of date (optional)">
+
+            <label class="checkbox">
+                <input type="checkbox" id="forceCheckbox">
+                Force recompute
+            </label>
+
+            <button class="btn btn-primary" id="cacheSeasonBtn" onclick="cacheSeason(false)">
+                Cache Season
+            </button>
+            <button class="btn btn-secondary" id="cacheAsOfBtn" onclick="cacheSeason(true)">
+                Cache Season (As-Of Date)
+            </button>
+            <button class="btn btn-danger" id="recacheAllBtn" onclick="recacheAll()">
+                Reload All (Force)
+            </button>
+            <button class="btn btn-secondary" id="refreshBtn" onclick="refreshStatus()">
+                Refresh
+            </button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText">Starting…</div>
+        </div>
+
+        <p class="info-text">
+            <strong>CLI Alternative:</strong> Run <code>sportscore cache_league_stats {{ league_id }} --season 2025-2026</code>
+            or <code>sportscore cache_league_stats {{ league_id }} --force</code>.
+        </p>
+    </div>
+
+    <div class="section">
+        <div class="section-header">
+            <span class="section-title">Cached Documents</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Season</th>
+                        <th>Type</th>
+                        <th>As-Of Date</th>
+                        <th>Games</th>
+                        <th>Teams</th>
+                        <th>lg_pace</th>
+                        <th>VOP</th>
+                        <th>Computed At</th>
+                    </tr>
+                </thead>
+                <tbody id="cacheTableBody">
+                    {% for doc in cached_docs %}
+                    <tr>
+                        <td class="mono">{{ doc.season }}</td>
+                        <td>
+                            {% if doc.as_of_date %}
+                                <span class="pill snapshot">snapshot</span>
+                            {% else %}
+                                <span class="pill base">base</span>
+                            {% endif %}
+                        </td>
+                        <td class="mono">{{ doc.as_of_date | default('—') }}</td>
+                        <td>{{ doc.game_count | default(0) | int }}</td>
+                        <td>{{ doc.team_pace | length if doc.team_pace else 0 }}</td>
+                        <td>{{ "%.2f"|format(doc.lg_pace) if doc.lg_pace is not none else "—" }}</td>
+                        <td>{{ "%.4f"|format(doc.league_constants.VOP) if doc.league_constants and doc.league_constants.VOP is not none else "—" }}</td>
+                        <td class="mono">{{ doc.computed_at | default('—') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let pollInterval = null;
+
+    function showAlert(message, type = 'info') {
+        const alertContainer = document.getElementById('alertContainer');
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.appendChild(alert);
+
+        setTimeout(() => {
+            alert.remove();
+        }, 6000);
+    }
+
+    function updateProgress(percent, text) {
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+
+        progressContainer.classList.add('active');
+        progressBar.style.width = percent + '%';
+        progressText.textContent = text;
+    }
+
+    function hideProgress() {
+        document.getElementById('progressContainer').classList.remove('active');
+    }
+
+    function setButtonsDisabled(disabled) {
+        document.getElementById('cacheSeasonBtn').disabled = disabled;
+        document.getElementById('cacheAsOfBtn').disabled = disabled;
+        document.getElementById('recacheAllBtn').disabled = disabled;
+    }
+
+    function getInputs() {
+        const season = document.getElementById('seasonSelect').value;
+        const asOfDate = document.getElementById('asOfDateInput').value;
+        const force = document.getElementById('forceCheckbox').checked;
+        return { season, asOfDate, force };
+    }
+
+    async function cacheSeason(useAsOfDate) {
+        const { season, asOfDate, force } = getInputs();
+        if (!season) {
+            showAlert('Select a season first.', 'error');
+            return;
+        }
+        if (useAsOfDate && !asOfDate) {
+            showAlert('Select an as-of date (YYYY-MM-DD).', 'error');
+            return;
+        }
+
+        setButtonsDisabled(true);
+        updateProgress(0, 'Starting cache job…');
+
+        try {
+            const response = await fetch('/api/cached-league-stats/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    mode: useAsOfDate ? 'season_as_of' : 'season',
+                    season,
+                    as_of_date: useAsOfDate ? asOfDate : null,
+                    force: !!force
+                })
+            });
+
+            const data = await response.json();
+            if (!data.success) {
+                hideProgress();
+                showAlert(data.error || 'Failed to start cache job', 'error');
+                setButtonsDisabled(false);
+                return;
+            }
+
+            pollJobStatus(data.job_id);
+        } catch (error) {
+            hideProgress();
+            showAlert('Error: ' + error.message, 'error');
+            setButtonsDisabled(false);
+        }
+    }
+
+    async function recacheAll() {
+        const ok = confirm('Reload ALL cached league stats? This will force recompute for all seasons.');
+        if (!ok) return;
+
+        setButtonsDisabled(true);
+        updateProgress(0, 'Starting full recache…');
+
+        try {
+            const response = await fetch('/api/cached-league-stats/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    mode: 'all',
+                    force: true
+                })
+            });
+
+            const data = await response.json();
+            if (!data.success) {
+                hideProgress();
+                showAlert(data.error || 'Failed to start recache job', 'error');
+                setButtonsDisabled(false);
+                return;
+            }
+
+            pollJobStatus(data.job_id);
+        } catch (error) {
+            hideProgress();
+            showAlert('Error: ' + error.message, 'error');
+            setButtonsDisabled(false);
+        }
+    }
+
+    function pollJobStatus(jobId) {
+        pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/jobs/${jobId}`);
+                const data = await response.json();
+
+                if (!data.success || !data.job) {
+                    clearInterval(pollInterval);
+                    hideProgress();
+                    showAlert(data.error || 'Failed to get job status', 'error');
+                    setButtonsDisabled(false);
+                    return;
+                }
+
+                const job = data.job;
+
+                if (job.status === 'running') {
+                    updateProgress(job.progress || 0, job.message || 'Processing…');
+                } else if (job.status === 'completed') {
+                    clearInterval(pollInterval);
+                    updateProgress(100, 'Complete!');
+                    showAlert(job.message || 'Cache job completed', 'success');
+                    setTimeout(() => {
+                        hideProgress();
+                        refreshStatus();
+                    }, 800);
+                    setButtonsDisabled(false);
+                } else if (job.status === 'failed') {
+                    clearInterval(pollInterval);
+                    hideProgress();
+                    showAlert(job.error || job.message || 'Job failed', 'error');
+                    setButtonsDisabled(false);
+                }
+            } catch (error) {
+                clearInterval(pollInterval);
+                hideProgress();
+                showAlert('Error polling job status', 'error');
+                setButtonsDisabled(false);
+            }
+        }, 1000);
+    }
+
+    function renderTable(docs) {
+        const body = document.getElementById('cacheTableBody');
+        body.innerHTML = '';
+
+        for (const doc of docs) {
+            const tr = document.createElement('tr');
+            const isSnapshot = !!doc.as_of_date;
+            const teams = doc.team_count || 0;
+            const vop = (doc.league_constants && doc.league_constants.VOP !== undefined && doc.league_constants.VOP !== null)
+                ? Number(doc.league_constants.VOP).toFixed(4) : '—';
+            const pace = (doc.lg_pace !== undefined && doc.lg_pace !== null)
+                ? Number(doc.lg_pace).toFixed(2) : '—';
+
+            tr.innerHTML = `
+                <td class="mono">${doc.season || ''}</td>
+                <td>${isSnapshot ? '<span class="pill snapshot">snapshot</span>' : '<span class="pill base">base</span>'}</td>
+                <td class="mono">${doc.as_of_date || '—'}</td>
+                <td>${doc.game_count || 0}</td>
+                <td>${teams}</td>
+                <td>${pace}</td>
+                <td>${vop}</td>
+                <td class="mono">${doc.computed_at || '—'}</td>
+            `;
+            body.appendChild(tr);
+        }
+    }
+
+    async function refreshStatus() {
+        try {
+            const response = await fetch('/api/cached-league-stats/stats');
+            const data = await response.json();
+            if (!data.success) {
+                showAlert(data.error || 'Failed to refresh status', 'error');
+                return;
+            }
+
+            document.getElementById('baseCachedCount').textContent = data.summary.base_cached_count || 0;
+            document.getElementById('snapshotCount').textContent = data.summary.snapshot_count || 0;
+            document.getElementById('latestComputedAt').textContent = data.summary.latest_computed_at || '—';
+
+            renderTable(data.cached_docs || []);
+        } catch (error) {
+            showAlert('Error refreshing status: ' + error.message, 'error');
+        }
+    }
+</script>
+{% endblock %}
+

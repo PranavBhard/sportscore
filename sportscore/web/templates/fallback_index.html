@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}{{ league.display_name if league else 'Sportscore' }}{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 60px 20px;">
+    <h1>{{ league.display_name if league else 'Welcome' }}</h1>
+    <p style="color: #666; margin-top: 12px; font-size: 16px;">
+        Games page coming soon. Use the nav above to explore modeling, data caches, and markets.
+    </p>
+</div>
+{% endblock %}

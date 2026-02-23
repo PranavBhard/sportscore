@@ -33,7 +33,26 @@ class BaseEnsemblePredictor(ABC):
     """
 
     # --- Class attributes (override in subclass for different column conventions) ---
+    # Relative to sport app repo root; resolved to absolute in _get_ensembles_dir()
     ENSEMBLE_DIR = 'cli/models/ensembles'
+
+    def _resolve_path(self, path: str) -> str:
+        """Resolve a potentially relative path against the sport app repo root."""
+        if not path or os.path.isabs(path):
+            return path
+        if self.league and hasattr(self.league, '_repo_root'):
+            resolved = os.path.join(self.league._repo_root, path)
+            if os.path.exists(resolved):
+                return resolved
+        return path
+
+    def _get_ensembles_dir(self) -> str:
+        """Resolve ENSEMBLE_DIR to an absolute path using league repo root."""
+        if os.path.isabs(self.ENSEMBLE_DIR):
+            return self.ENSEMBLE_DIR
+        if self.league and hasattr(self.league, '_repo_root'):
+            return os.path.join(self.league._repo_root, self.ENSEMBLE_DIR)
+        return os.path.abspath(self.ENSEMBLE_DIR)
 
     def __init__(self, db, ensemble_config: Dict, league=None):
         """
@@ -148,6 +167,11 @@ class BaseEnsemblePredictor(ABC):
                 if not config:
                     raise ValueError(f"Base model config not found: {base_id_str}")
 
+                # Resolve relative artifact paths against sport app repo root
+                for path_key in ('model_artifact_path', 'scaler_artifact_path', 'features_path'):
+                    if config.get(path_key):
+                        config[path_key] = self._resolve_path(config[path_key])
+
                 self.base_model_configs.append(config)
 
                 # Get feature names from config or load from artifacts
@@ -168,9 +192,13 @@ class BaseEnsemblePredictor(ABC):
 
     def _load_meta_model(self):
         """Load meta-model, scaler, and configuration from artifacts."""
-        meta_model_path = self.ensemble_config.get('meta_model_path')
-        meta_scaler_path = self.ensemble_config.get('meta_scaler_path')
-        ensemble_cfg_path = self.ensemble_config.get('ensemble_config_path')
+        meta_model_path = self._resolve_path(self.ensemble_config.get('meta_model_path') or '')
+        meta_scaler_path = self._resolve_path(self.ensemble_config.get('meta_scaler_path') or '')
+        ensemble_cfg_path = self._resolve_path(self.ensemble_config.get('ensemble_config_path') or '')
+        # Treat empty strings as None after resolution
+        meta_model_path = meta_model_path or None
+        meta_scaler_path = meta_scaler_path or None
+        ensemble_cfg_path = ensemble_cfg_path or None
 
         # Derive missing paths from a known stored path (sibling files share the same
         # directory and run_id prefix) or fall back to ENSEMBLE_DIR + run_id.
@@ -181,7 +209,7 @@ class BaseEnsemblePredictor(ABC):
         elif ensemble_cfg_path:
             ensembles_dir = os.path.dirname(ensemble_cfg_path)
         else:
-            ensembles_dir = self.ENSEMBLE_DIR
+            ensembles_dir = self._get_ensembles_dir()
         meta_model_path = meta_model_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_model.pkl')
         meta_scaler_path = meta_scaler_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_meta_scaler.pkl')
         ensemble_cfg_path = ensemble_cfg_path or os.path.join(ensembles_dir, f'{self.ensemble_run_id}_ensemble_config.json')

@@ -315,6 +315,19 @@ class BaseLeagueConfig:
         return float(self.elo_carryover_config.get("mean_rating", self.elo_starting_rating))
 
     @property
+    def elo_margin_adjustment_config(self) -> Dict[str, Any]:
+        """Margin-of-victory adjustment config from elo YAML block."""
+        return self.elo_config.get("margin_adjustment") or {}
+
+    @property
+    def elo_margin_adjustment_enabled(self) -> bool:
+        return bool(self.elo_margin_adjustment_config.get("enabled", False))
+
+    @property
+    def elo_margin_adjustment_method(self) -> str:
+        return self.elo_margin_adjustment_config.get("method", "")
+
+    @property
     def elo_neutral_site_config(self) -> Dict[str, Any]:
         return self.elo_config.get("neutral_site") or {}
 

@@ -1,0 +1,565 @@
+{% extends "base.html" %}
+
+{% block title %}ESPN DB Audit{% endblock %}
+
+{% block styles %}
+<style>
+  .page-header { margin-bottom: 20px; }
+  .page-header p { color: #666; margin-top: 6px; }
+
+  .section {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+
+  .row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+
+  label { font-size: 13px; color: #444; display: block; margin-bottom: 6px; }
+  select, input[type="text"], input[type="date"] {
+    padding: 10px 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    min-width: 180px;
+  }
+
+  .checkbox {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 14px;
+    color: #444;
+    padding: 10px 0;
+  }
+
+  .btn {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary { background: #667eea; color: white; }
+  .btn-primary:hover { background: #5568d3; }
+  .btn-secondary { background: #6c757d; color: white; }
+  .btn-secondary:hover { background: #5a6268; }
+
+  .progress-container { display: none; margin-top: 12px; }
+  .progress-container.active { display: block; }
+  .progress-bar-wrapper { background: #e9ecef; border-radius: 999px; height: 16px; overflow: hidden; }
+  .progress-bar { background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; width: 0%; transition: width 0.2s ease; }
+  .progress-text { margin-top: 8px; font-size: 13px; color: #666; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .stat-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .stat-label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+  .stat-value { font-size: 22px; font-weight: 700; color: #111827; }
+
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .split { grid-template-columns: 1fr; }
+  }
+
+  .table-container { overflow: auto; border: 1px solid #e5e7eb; border-radius: 12px; background: white; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; text-align: left; white-space: nowrap; }
+  th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+  .alert { padding: 12px 14px; border-radius: 10px; border: 1px solid transparent; margin-bottom: 12px; font-size: 14px; }
+  .alert-error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+  .alert-info { background: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>ESPN DB Audit</h1>
+  <p>Compare ESPN’s games vs MongoDB, backfill missing days, and see missing/extra <span class="mono">game_id</span>s.</p>
+</div>
+
+<div id="alert" class="alert alert-info" style="display:none;"></div>
+
+<div class="section">
+  <div class="row">
+    <div>
+      <label for="team">Team</label>
+      <select id="team">
+        {% for t in teams %}
+          <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="season">Season</label>
+      <select id="season">
+        {% for s in available_seasons %}
+          <option value="{{ s }}" {% if default_season and s == default_season %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="start_date">Start date (optional)</label>
+      <input id="start_date" type="date" />
+    </div>
+    <div>
+      <label for="end_date">End date (optional)</label>
+      <input id="end_date" type="date" />
+    </div>
+    <div class="checkbox">
+      <input id="completed_only" type="checkbox" checked />
+      <label for="completed_only" style="margin:0;">Completed only</label>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <button class="btn btn-primary" onclick="runAudit()">Run audit</button>
+    <div class="checkbox">
+      <input id="dry_run" type="checkbox" />
+      <label for="dry_run" style="margin:0;">Dry run pull</label>
+    </div>
+    <button class="btn btn-secondary" onclick="pullGames()">Pull games (date range)</button>
+  </div>
+
+  <div id="progress" class="progress-container">
+    <div class="progress-bar-wrapper">
+      <div id="progressBar" class="progress-bar"></div>
+    </div>
+    <div id="progressText" class="progress-text"></div>
+  </div>
+</div>
+
+<div class="section">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div style="font-size:18px; font-weight:700; color:#111827;">Results</div>
+    <div id="resultMeta" class="mono" style="color:#6b7280; font-size:12px;"></div>
+  </div>
+
+  <div id="batchControls" style="display:none; margin-top:10px;">
+    <div class="row">
+      <div>
+        <label for="resultPicker">Batch results</label>
+        <select id="resultPicker" onchange="onPickResult()"></select>
+      </div>
+    </div>
+    <div class="table-container" style="margin-top:10px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Season</th>
+            <th>Range</th>
+            <th>ESPN</th>
+            <th>DB</th>
+            <th>Missing</th>
+            <th>Extra</th>
+            <th>Scoreboard!=ET</th>
+          </tr>
+        </thead>
+        <tbody id="batchTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="summaryGrid" class="stats-grid" style="display:none;"></div>
+
+  <div class="split" style="margin-top:12px;">
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
+        <span style="font-weight:700;">Missing in DB</span>
+        <button id="pullMissingBtn" class="btn btn-secondary" style="display:none; font-size:12px; padding:6px 10px;" onclick="pullMissingGames()">Pull missing games</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Date (ET)</th>
+              <th>Matchup</th>
+              <th>game_id</th>
+              <th>scoreboard_query_date</th>
+              <th>winner</th>
+              <th>seasonType</th>
+            </tr>
+          </thead>
+          <tbody id="missingBody">
+            <tr><td colspan="6" style="color:#6b7280;">Run an audit to populate.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div style="font-weight:700; margin:8px 0;">Extra in DB</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Matchup</th>
+              <th>game_id</th>
+              <th>season</th>
+              <th>game_type</th>
+            </tr>
+          </thead>
+          <tbody id="extraBody">
+            <tr><td colspan="5" style="color:#6b7280;">Run an audit to populate.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let activeJobId = null;
+  let pollTimer = null;
+  let lastResult = null;
+
+  function setAlert(message, kind) {
+    const el = document.getElementById('alert');
+    if (!message) {
+      el.style.display = 'none';
+      return;
+    }
+    el.className = 'alert ' + (kind === 'error' ? 'alert-error' : 'alert-info');
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+
+  function setProgress(active, pct, text) {
+    const container = document.getElementById('progress');
+    const bar = document.getElementById('progressBar');
+    const t = document.getElementById('progressText');
+    if (!active) {
+      container.classList.remove('active');
+      bar.style.width = '0%';
+      t.textContent = '';
+      return;
+    }
+    container.classList.add('active');
+    bar.style.width = `${pct}%`;
+    t.textContent = text || '';
+  }
+
+  function getFormData() {
+    return {
+      team: document.getElementById('team').value,
+      season: document.getElementById('season').value,
+      start_date: document.getElementById('start_date').value || null,
+      end_date: document.getElementById('end_date').value || null,
+      completed_only: document.getElementById('completed_only').checked
+    };
+  }
+
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `Request failed: ${res.status}`);
+    }
+    return data;
+  }
+
+  async function pollJob(jobId) {
+    const res = await fetch(`/api/jobs/${jobId}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Job lookup failed');
+    return data.job;
+  }
+
+  function renderSummary(summary) {
+    const grid = document.getElementById('summaryGrid');
+    grid.style.display = 'grid';
+    const items = [
+      ['ESPN games', summary.espn_games],
+      ['DB games', summary.db_games],
+      ['ESPN record (best-effort)', summary.espn_record],
+      ['DB record', summary.db_record],
+      ['Missing in DB', summary.missing_in_db],
+      ['Extra in DB', summary.extra_in_db],
+      ['Scoreboard date != ET date', summary.espn_scoreboard_query_date_ne_et_date],
+    ];
+    grid.innerHTML = items.map(([label, value]) => `
+      <div class="stat-card">
+        <div class="stat-label">${label}</div>
+        <div class="stat-value">${value ?? '—'}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderTableRows(tbodyId, rows, emptyCols, rowHtmlFn) {
+    const body = document.getElementById(tbodyId);
+    if (!rows || rows.length === 0) {
+      body.innerHTML = `<tr><td colspan="${emptyCols}" style="color:#6b7280;">None.</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map(rowHtmlFn).join('');
+  }
+
+  function renderMissingExtra(singleResult) {
+    const missingGames = singleResult.missing_in_db || [];
+
+    renderTableRows('missingBody', missingGames, 6, (r) => `
+      <tr>
+        <td>${r.et_date}</td>
+        <td class="mono">${r.matchup}</td>
+        <td class="mono">${r.game_id}</td>
+        <td>${r.scoreboard_query_date}</td>
+        <td>${r.winner ?? '—'}</td>
+        <td>${r.season_type ?? '—'}</td>
+      </tr>
+    `);
+
+    renderTableRows('extraBody', singleResult.extra_in_db, 5, (r) => `
+      <tr>
+        <td>${r.date ?? '—'}</td>
+        <td class="mono">${r.matchup ?? '—'}</td>
+        <td class="mono">${r.game_id}</td>
+        <td>${r.season ?? '—'}</td>
+        <td>${r.game_type ?? '—'}</td>
+      </tr>
+    `);
+
+    // Show/hide pull button based on missing games
+    // In batch mode, show total count across all results
+    const pullBtn = document.getElementById('pullMissingBtn');
+    if (pullBtn) {
+      const totalMissing = getMissingGamesFromCurrentResult().length;
+      pullBtn.style.display = totalMissing > 0 ? 'inline-block' : 'none';
+      pullBtn.textContent = `Pull ${totalMissing} missing game${totalMissing !== 1 ? 's' : ''}`;
+    }
+  }
+
+  function selectResult(idx) {
+    const picker = document.getElementById('resultPicker');
+    if (picker) picker.value = String(idx);
+    if (!lastResult || !Array.isArray(lastResult.results)) return;
+    const r = lastResult.results[idx];
+    if (r) renderMissingExtra(r);
+  }
+
+  function onPickResult() {
+    const picker = document.getElementById('resultPicker');
+    if (!picker) return;
+    selectResult(parseInt(picker.value || '0', 10));
+  }
+
+  function renderAuditResult(result) {
+    if (!result) return;
+    lastResult = result;
+
+    const meta = document.getElementById('resultMeta');
+    const batchControls = document.getElementById('batchControls');
+    const isBatch = Array.isArray(result.results);
+
+    if (!isBatch) {
+      batchControls.style.display = 'none';
+      meta.textContent = `${result.params.team} ${result.params.season}  ${result.params.start_date} → ${result.params.end_date}`;
+      renderSummary(result.summary);
+      renderMissingExtra(result);
+      return;
+    }
+
+    // Batch wrapper
+    batchControls.style.display = 'block';
+    const agg = result.aggregate_summary || {};
+    meta.textContent = `${result.params.team} ${result.params.season}  runs=${agg.runs ?? result.results.length}`;
+
+    renderSummary({
+      espn_games: agg.total_espn_games,
+      db_games: agg.total_db_games,
+      espn_record: '—',
+      db_record: '—',
+      missing_in_db: agg.total_missing_in_db,
+      extra_in_db: agg.total_extra_in_db,
+      espn_scoreboard_query_date_ne_et_date: agg.total_scoreboard_date_ne_et_date
+    });
+
+    const picker = document.getElementById('resultPicker');
+    picker.innerHTML = result.results.map((r, idx) => {
+      const p = r.params || {};
+      return `<option value="${idx}">${p.team} ${p.season} (${p.start_date}→${p.end_date})</option>`;
+    }).join('');
+
+    const body = document.getElementById('batchTableBody');
+    body.innerHTML = result.results.map((r, idx) => {
+      const p = r.params || {};
+      const s = r.summary || {};
+      return `
+        <tr onclick="selectResult(${idx})" style="cursor:pointer;">
+          <td class="mono">${p.team}</td>
+          <td class="mono">${p.season}</td>
+          <td class="mono">${p.start_date}→${p.end_date}</td>
+          <td>${s.espn_games ?? '—'}</td>
+          <td>${s.db_games ?? '—'}</td>
+          <td>${s.missing_in_db ?? '—'}</td>
+          <td>${s.extra_in_db ?? '—'}</td>
+          <td>${s.espn_scoreboard_query_date_ne_et_date ?? '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    selectResult(0);
+  }
+
+  function startPolling(jobId) {
+    activeJobId = jobId;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const job = await pollJob(jobId);
+        setProgress(true, job.progress || 0, job.message || '');
+        if (job.status === 'failed') {
+          setAlert(job.error || job.message || 'Job failed', 'error');
+          setProgress(false);
+          clearInterval(pollTimer);
+          pollTimer = null;
+          return;
+        }
+        if (job.status === 'completed') {
+          setAlert(job.message || 'Job completed', 'info');
+          setProgress(false);
+          clearInterval(pollTimer);
+          pollTimer = null;
+          if (job.result) renderAuditResult(job.result);
+        }
+      } catch (e) {
+        setAlert(e.message, 'error');
+        setProgress(false);
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }, 800);
+  }
+
+  async function runAudit() {
+    setAlert('', 'info');
+    setProgress(true, 1, 'Starting audit…');
+    try {
+      const payload = getFormData();
+      const data = await postJson('/api/espn-db-audit/run', payload);
+      setAlert('Audit started. Polling…', 'info');
+      startPolling(data.job_id);
+    } catch (e) {
+      setAlert(e.message, 'error');
+      setProgress(false);
+    }
+  }
+
+  async function pullGames() {
+    setAlert('', 'info');
+    setProgress(true, 1, 'Starting pull…');
+    try {
+      const payload = getFormData();
+      payload.dry_run = document.getElementById('dry_run').checked;
+      // These are available in the API; keep UI simple for now
+      payload.team_only = false;
+      payload.players_only = false;
+      const data = await postJson('/api/espn-db-audit/pull', payload);
+      setAlert('Pull started. Polling…', 'info');
+      startPolling(data.job_id);
+    } catch (e) {
+      setAlert(e.message, 'error');
+      setProgress(false);
+    }
+  }
+
+  function getMissingGamesFromCurrentResult() {
+    if (!lastResult) return [];
+
+    // For batch results, get missing games from all results
+    if (Array.isArray(lastResult.results)) {
+      const allMissing = [];
+      for (const r of lastResult.results) {
+        if (r.missing_in_db && r.missing_in_db.length > 0) {
+          allMissing.push(...r.missing_in_db);
+        }
+      }
+      return allMissing;
+    }
+
+    // Single result
+    return lastResult.missing_in_db || [];
+  }
+
+  async function pullMissingGames() {
+    const missingGames = getMissingGamesFromCurrentResult();
+    if (missingGames.length === 0) {
+      setAlert('No missing games to pull.', 'info');
+      return;
+    }
+
+    setAlert('', 'info');
+    setProgress(true, 1, 'Starting pull of missing games…');
+
+    try {
+      const payload = {
+        games: missingGames.map(g => ({ game_id: g.game_id, et_date: g.et_date })),
+        dry_run: document.getElementById('dry_run').checked
+      };
+      const data = await postJson('/api/espn-db-audit/pull-by-ids', payload);
+      setAlert(`Pull started for ${data.game_count} game(s). Polling…`, 'info');
+      startPolling(data.job_id);
+    } catch (e) {
+      setAlert(e.message, 'error');
+      setProgress(false);
+    }
+  }
+
+  async function checkForRunningJob() {
+    // Check for audit, pull, and pull-by-ids jobs
+    const jobTypes = [
+      { type: 'espn_games_audit', label: 'audit' },
+      { type: 'espn_pull_games', label: 'pull' },
+      { type: 'espn_pull_by_ids', label: 'pull by ID' }
+    ];
+
+    for (const { type, label } of jobTypes) {
+      try {
+        const res = await fetch(`/api/jobs/running/${type}`);
+        const data = await res.json();
+        if (data.success && data.job) {
+          setAlert(`Found running ${label} job. Resuming progress…`, 'info');
+          setProgress(true, data.job.progress || 0, data.job.message || '');
+          startPolling(data.job._id);
+          return; // Only track one job at a time
+        }
+      } catch (e) {
+        console.error(`Error checking for running ${label} job:`, e);
+      }
+    }
+  }
+
+  // Check for running jobs on page load
+  document.addEventListener('DOMContentLoaded', checkForRunningJob);
+</script>
+{% endblock %}
+

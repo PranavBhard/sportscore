@@ -60,6 +60,40 @@ class SportPlugin(ABC):
         """
         return None
 
+    # -- Web integration (optional) ------------------------------------------
+
+    def get_web_blueprint(self):
+        """Return a Flask Blueprint with sport-specific routes, or None."""
+        return None
+
+    def get_web_services(self, db, league) -> "SportServices":
+        """Return a ``SportServices`` container for shared web routes.
+
+        Sport plugins override this to populate the service groups they
+        support (model, market, features, elo, data, jobs).  Unused groups
+        default to empty sub-dataclasses (all fields None), and shared_routes
+        returns 501 for those endpoints.
+        """
+        from sportscore.web.services import SportServices
+        return SportServices()
+
+    def get_index_view(self):
+        """Return the index (games page) view function, or None.
+
+        The returned callable should accept ``league_id=None`` and return
+        a Flask response.  The app-level ``/<league_id>/`` route dispatches
+        to this so that each sport renders its own games page.
+        """
+        return None
+
+    def get_nav_items(self, league_id: str) -> list:
+        """Return sport-specific nav items for the web UI.
+
+        Each item: {'label': str, 'url': str, 'group': str}
+        group is 'data_caches', 'modeling', 'markets', etc.
+        """
+        return []
+
 
 def discover_plugins() -> Dict[str, SportPlugin]:
     """Discover sport plugins via entry points.

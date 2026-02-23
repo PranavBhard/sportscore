@@ -28,15 +28,19 @@ ml = [
 market = [
     "cryptography>=41.0.0",
 ]
+web = [
+    "flask>=2.0",
+]
 all = [
-    "sportscore[ml,market]",
+    "sportscore[ml,market,web]",
 ]
 
 [project.scripts]
 sportscore = "sportscore.cli.main:main"
+sportscore-web = "sportscore.web:run"
 
 [tool.setuptools.package-data]
-sportscore = ["sports/*.yaml"]
+sportscore = ["sports/*.yaml", "web/templates/*.html", "web/static/**/*"]
 
 [tool.setuptools.packages.find]
 include = ["sportscore*"]

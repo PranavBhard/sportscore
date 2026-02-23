@@ -7,6 +7,7 @@ Elo ratings are computed from historical game data and stored per (team, date, s
 Document schema:
 {
     "team": "Team Name",
+    "league": "epl",           # present when league scoping is active
     "game_date": "2024-01-15",
     "season": "2023-2024",
     "elo": 1623.5,
@@ -14,11 +15,13 @@ Document schema:
 }
 
 Indexes:
-- (team, game_date, season) - unique, for fast lookups
+- (team, game_date, season) - unique, for fast lookups (legacy)
+- (league, team, game_date, season) - unique, for league-scoped lookups
 - (season) - for cache management by season
 - (game_date) - for finding latest ratings
 """
 
+import math
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -81,6 +84,9 @@ class EloCache:
         self.db = db
         self.league = league
 
+        # League scoping — filter all queries/writes by league when set
+        self._league_id = league.league_id if league else None
+
         # Collection resolution
         effective = collection_name
         if league is not None:
@@ -106,6 +112,10 @@ class EloCache:
         self._neutral_site_ha = league.elo_neutral_site_home_advantage if league else 0
         self._ha_overrides = league.elo_home_advantage_overrides if league else {}
 
+        # Margin adjustment config
+        self._margin_adj_enabled = league.elo_margin_adjustment_enabled if league else False
+        self._margin_adj_method = league.elo_margin_adjustment_method if league else ""
+
         # Games repo for data access (sport-specific, injected by caller)
         self._games_repo = games_repo
 
@@ -121,6 +131,13 @@ class EloCache:
     def _exclude_game_types(self) -> list:
         """Get excluded game types from league config, with fallback."""
         return self.league.exclude_game_types if self.league else ['preseason', 'allstar']
+
+    def _league_query(self, query: dict = None) -> dict:
+        """Return a query dict with league filter applied when league scoping is active."""
+        q = dict(query) if query else {}
+        if self._league_id:
+            q["league"] = self._league_id
+        return q
 
     def _get_k_for_games_played(self, games_played: int) -> float:
         """
@@ -147,25 +164,64 @@ class EloCache:
             f"and no default entry: {self._k_schedule}"
         )
 
+    def _get_score_diff(self, game: dict) -> int:
+        """Extract absolute score differential from game doc (sport-agnostic)."""
+        home = game.get('homeTeam', {})
+        away = game.get('awayTeam', {})
+        h = home.get('score') or home.get('runs') or home.get('goals') or 0
+        a = away.get('score') or away.get('runs') or away.get('goals') or 0
+        return abs(int(h) - int(a))
+
     def _ensure_indexes(self):
-        """Create required indexes if they don't exist."""
-        self.collection.create_index(
+        """Create required indexes if they don't exist.
+
+        Tolerates name conflicts (IndexOptionsConflict, code 85) which arise
+        when another code path already created the same key pattern under a
+        different name (e.g. MongoDB auto-generated names from full_pipeline).
+        """
+        from pymongo.errors import OperationFailure
+
+        def _safe_create(keys, **kwargs):
+            try:
+                self.collection.create_index(keys, **kwargs)
+            except OperationFailure as e:
+                if e.code != 85:  # IndexOptionsConflict
+                    raise
+
+        # Legacy indexes (non-league-scoped)
+        _safe_create(
             [("team", ASCENDING), ("game_date", ASCENDING), ("season", ASCENDING)],
-            unique=True,
-            name="team_date_season_unique"
+            unique=True, name="team_date_season_unique",
         )
-        self.collection.create_index(
+        _safe_create(
             [("season", ASCENDING)],
-            name="season_idx"
+            name="season_idx",
         )
-        self.collection.create_index(
+        _safe_create(
             [("game_date", DESCENDING)],
-            name="game_date_desc_idx"
+            name="game_date_desc_idx",
         )
-        self.collection.create_index(
+        _safe_create(
             [("team", ASCENDING), ("game_date", DESCENDING)],
-            name="team_date_desc_idx"
+            name="team_date_desc_idx",
         )
+
+        # League-scoped indexes
+        if self._league_id:
+            _safe_create(
+                [("league", ASCENDING), ("team", ASCENDING),
+                 ("game_date", ASCENDING), ("season", ASCENDING)],
+                unique=True, name="league_team_date_season_unique",
+            )
+            _safe_create(
+                [("league", ASCENDING), ("season", ASCENDING)],
+                name="league_season_idx",
+            )
+            _safe_create(
+                [("league", ASCENDING), ("team", ASCENDING),
+                 ("game_date", DESCENDING)],
+                name="league_team_date_desc_idx",
+            )
 
     def preload(self, seasons: List[str] = None):
         """
@@ -174,7 +230,7 @@ class EloCache:
         Args:
             seasons: Optional list of seasons to preload. If None, loads all.
         """
-        query = {}
+        query = self._league_query()
         if seasons:
             query['season'] = {'$in': seasons}
 
@@ -206,7 +262,8 @@ class EloCache:
         Compute Elo ratings from a list of games.
 
         Supports season carryover regression, dynamic K schedules,
-        neutral site handling, and per-game_type home advantage overrides.
+        neutral site handling, per-game_type home advantage overrides,
+        and margin-of-victory adjustment.
 
         Args:
             games: List of game documents (multi-season, chronological).
@@ -281,6 +338,13 @@ class EloCache:
             # Update ratings
             actual_home = 1 if game['homeWon'] else 0
             elo_change = k * (actual_home - expected_home)
+
+            # Margin-of-victory adjustment
+            if self._margin_adj_enabled and self._margin_adj_method == 'log_run_diff':
+                score_diff = self._get_score_diff(game)
+                if score_diff > 0:
+                    elo_change *= math.log(1 + score_diff)
+
             elo[home] += elo_change
             elo[away] -= elo_change
 
@@ -321,18 +385,23 @@ class EloCache:
         now = datetime.utcnow()
 
         for idx, ((team, game_date, season), elo) in enumerate(elo_history.items()):
+            # Match on the natural key only (team, game_date, season) — NOT
+            # league — so that legacy docs (without a league field) are matched
+            # and updated rather than causing a duplicate-key conflict with the
+            # legacy team_date_season_unique index.
+            filter_doc = {"team": team, "game_date": game_date, "season": season}
+            set_doc = {
+                "team": team,
+                "game_date": game_date,
+                "season": season,
+                "elo": elo,
+                "updated_at": now
+            }
+            if self._league_id:
+                set_doc["league"] = self._league_id
+
             operations.append(
-                UpdateOne(
-                    {"team": team, "game_date": game_date, "season": season},
-                    {"$set": {
-                        "team": team,
-                        "game_date": game_date,
-                        "season": season,
-                        "elo": elo,
-                        "updated_at": now
-                    }},
-                    upsert=True
-                )
+                UpdateOne(filter_doc, {"$set": set_doc}, upsert=True)
             )
 
             if len(operations) >= batch_size:
@@ -373,6 +442,8 @@ class EloCache:
             raise RuntimeError("games_repo must be provided to use compute_and_cache_all()")
 
         query = {'game_type': {'$nin': self._exclude_game_types}}
+        if self._league_id:
+            query['league'] = self._league_id
         if seasons:
             query['season'] = {'$in': seasons}
 
@@ -443,11 +514,11 @@ class EloCache:
         if self._preloaded and self._memory_cache is not None:
             return self._memory_cache.get((team, game_date, season))
 
-        doc = self.collection.find_one({
+        doc = self.collection.find_one(self._league_query({
             "team": team,
             "game_date": game_date,
             "season": season
-        })
+        }))
         return doc['elo'] if doc else None
 
     def get_elo_for_game_with_fallback(
@@ -480,7 +551,7 @@ class EloCache:
             return self.starting_elo
 
         doc = self.collection.find_one(
-            {"team": team, "game_date": {"$lt": game_date}},
+            self._league_query({"team": team, "game_date": {"$lt": game_date}}),
             sort=[("game_date", DESCENDING)]
         )
         if doc:
@@ -499,7 +570,7 @@ class EloCache:
             Most recent Elo rating, or default if not found
         """
         doc = self.collection.find_one(
-            {"team": team},
+            self._league_query({"team": team}),
             sort=[("game_date", DESCENDING)]
         )
         return doc['elo'] if doc else self.starting_elo
@@ -511,7 +582,10 @@ class EloCache:
         Returns:
             Dict mapping team name -> current elo rating
         """
-        pipeline = [
+        pipeline = []
+        if self._league_id:
+            pipeline.append({"$match": {"league": self._league_id}})
+        pipeline.extend([
             {"$sort": {"game_date": -1}},
             {"$group": {
                 "_id": "$team",
@@ -519,14 +593,15 @@ class EloCache:
                 "game_date": {"$first": "$game_date"}
             }},
             {"$sort": {"elo": -1}}
-        ]
+        ])
 
         results = list(self.collection.aggregate(pipeline))
         return {doc['_id']: doc['elo'] for doc in results}
 
     def get_cache_stats(self) -> dict:
         """Get statistics about the Elo cache."""
-        total_docs = self.collection.count_documents({})
+        base_query = self._league_query()
+        total_docs = self.collection.count_documents(base_query)
 
         if total_docs == 0:
             return {
@@ -537,13 +612,13 @@ class EloCache:
                 'last_updated': None
             }
 
-        teams = self.collection.distinct('team')
-        seasons = sorted(self.collection.distinct('season'))
+        teams = self.collection.distinct('team', base_query)
+        seasons = sorted(self.collection.distinct('season', base_query))
 
-        oldest = self.collection.find_one(sort=[("game_date", ASCENDING)])
-        newest = self.collection.find_one(sort=[("game_date", DESCENDING)])
+        oldest = self.collection.find_one(base_query, sort=[("game_date", ASCENDING)])
+        newest = self.collection.find_one(base_query, sort=[("game_date", DESCENDING)])
 
-        last_updated_doc = self.collection.find_one(sort=[("updated_at", DESCENDING)])
+        last_updated_doc = self.collection.find_one(base_query, sort=[("updated_at", DESCENDING)])
         last_updated = last_updated_doc.get('updated_at') if last_updated_doc else None
 
         return {
@@ -575,7 +650,7 @@ class EloCache:
         Returns:
             List of {game_date, season, elo} dicts, sorted by date descending
         """
-        query = {"team": team}
+        query = self._league_query({"team": team})
         if season:
             query["season"] = season
 
@@ -596,9 +671,9 @@ class EloCache:
         Returns:
             Number of documents deleted
         """
+        query = self._league_query()
         if seasons:
-            result = self.collection.delete_many({"season": {"$in": seasons}})
-        else:
-            result = self.collection.delete_many({})
+            query["season"] = {"$in": seasons}
 
+        result = self.collection.delete_many(query)
         return result.deleted_count

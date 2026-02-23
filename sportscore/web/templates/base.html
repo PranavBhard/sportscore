@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ league.display_name if league else 'Sportscore' }} Predictions{% endblock %}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            padding-top: 100px; /* Account for fixed header */
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 80px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-logo {
+            height: 60px;
+            width: auto;
+            max-height: 60px;
+            object-fit: contain;
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .league-switcher {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .league-switcher-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .league-switcher-toggle:hover {
+            background: #f0f0f0;
+        }
+
+        .league-switcher-toggle svg {
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+
+        .league-switcher-toggle:hover svg {
+            opacity: 1;
+        }
+
+        .league-switcher-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 220px;
+            padding: 8px 0;
+            padding-top: 13px;
+            margin-top: 0;
+            display: none;
+            z-index: 1001;
+            white-space: nowrap;
+        }
+
+        .league-switcher-menu::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: transparent;
+        }
+
+        .league-switcher:hover .league-switcher-menu {
+            display: block;
+        }
+
+        .sport-group-header {
+            padding: 6px 16px 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #999;
+        }
+
+        .sport-group-header:not(:first-child) {
+            margin-top: 6px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+
+        .league-switcher-item-logo {
+            width: 20px;
+            height: 20px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        .league-switcher-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px 8px 28px;
+            color: #333;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .league-switcher-item:hover {
+            background: #f0f0f0;
+        }
+
+        .league-switcher-item.active {
+            background: #667eea15;
+            color: #667eea;
+        }
+
+        .league-switcher-item .check-icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0;
+        }
+
+        .league-switcher-item.active .check-icon {
+            opacity: 1;
+        }
+
+        .nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-left: auto;
+        }
+
+        .nav-item {
+            color: #333;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 500;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .nav-item:hover {
+            background: #f0f0f0;
+        }
+
+        .nav-dropdown {
+            position: relative;
+        }
+
+        .nav-dropdown-toggle {
+            color: #333;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 500;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.2s;
+        }
+
+        .nav-dropdown-toggle:hover {
+            background: #f0f0f0;
+        }
+
+        .nav-dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 200px;
+            padding: 8px 0;
+            padding-top: 13px; /* 8px content padding + 5px for visual gap */
+            margin-top: 0;
+            display: none;
+            z-index: 1001;
+            white-space: nowrap;
+        }
+
+        /* Invisible bridge to prevent hover gap */
+        .nav-dropdown-menu::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: transparent;
+        }
+
+        .nav-dropdown:hover .nav-dropdown-menu {
+            display: block;
+        }
+
+        .nav-dropdown-item {
+            display: block;
+            padding: 10px 16px;
+            color: #333;
+            text-decoration: none;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .nav-dropdown-item:hover {
+            background: #f0f0f0;
+        }
+
+        .container {
+            /* max-width: 1400px; */
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .date-selector {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .date-selector input[type="date"] {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .date-selector button {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .date-selector button:hover {
+            background: #5568d3;
+        }
+
+        /* Shared button styles */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s, opacity 0.2s;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: linear-gradient(135deg, #5568d3 0%, #653a91 100%);
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #d0d0d0;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: linear-gradient(135deg, #219a52 0%, #27ae60 100%);
+        }
+
+        .btn-small {
+            padding: 5px 12px;
+            font-size: 13px;
+        }
+
+        {% block styles %}{% endblock %}
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <img
+                src="{{ league.logo_url or url_for('static', filename='imgs/NBA-Logo.png') }}"
+                alt="{{ league.display_name if league else 'League' }} Logo"
+                class="header-logo"
+                onerror="this.style.display='none'"
+            >
+            <div class="league-switcher">
+                <div class="league-switcher-toggle">
+                    {{ (league_id or 'select')|upper }} CORE
+                    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="league-switcher-menu">
+                    {% for sn, leagues in sport_leagues.items() %}
+                    {% set sport_emoji = {'basketball': '🏀', 'soccer': '⚽', 'hockey': '🏒', 'baseball': '⚾', 'football': '🏈', 'tennis': '🎾'} %}
+                    <div class="sport-group-header">{{ sport_emoji.get(sn, '🏅') }} {{ sn|title }}</div>
+                    {% for lg in leagues %}
+                    <a href="/{{ lg.id }}/" onclick="event.preventDefault(); switchLeague('{{ lg.id }}')" class="league-switcher-item {% if lg.id == league_id %}active{% endif %}">
+                        <svg class="check-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M13.5 4.5L6 12L2.5 8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        {% if lg.logo_url %}<img src="{{ lg.logo_url }}" alt="" class="league-switcher-item-logo">{% endif %}
+                        {{ lg.display_name }}
+                    </a>
+                    {% endfor %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <nav class="nav-menu">
+            {% if league_id %}
+            <a href="/{{ league_id }}/" class="nav-item">Games</a>
+            <div class="nav-dropdown">
+                <span class="nav-dropdown-toggle">
+                    Modeling
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <div class="nav-dropdown-menu">
+                    <a href="/{{ league_id }}/model-config" class="nav-dropdown-item">Classification Models</a>
+                    <a href="/{{ league_id }}/ensemble-config" class="nav-dropdown-item">Ensemble Models</a>
+                    <a href="/{{ league_id }}/model-config-points" class="nav-dropdown-item">Points Regression Models</a>
+                    <a href="/{{ league_id }}/master-training" class="nav-dropdown-item">Master Training Data</a>
+                    {% for item in sport_nav_items if item.group == 'modeling' %}
+                    <a href="{{ item.url }}" class="nav-dropdown-item">{{ item.label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="nav-dropdown">
+                <span class="nav-dropdown-toggle">
+                    Data Caches
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <div class="nav-dropdown-menu">
+                    <a href="/{{ league_id }}/elo-manager" class="nav-dropdown-item">Elo Ratings</a>
+                    <a href="/{{ league_id }}/cached-league-stats" class="nav-dropdown-item">Cached League Stats</a>
+                    <a href="/{{ league_id }}/espn-db-audit" class="nav-dropdown-item">ESPN DB Audit</a>
+                    {% for item in sport_nav_items if item.group == 'data_caches' %}
+                    <a href="{{ item.url }}" class="nav-dropdown-item">{{ item.label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            <div class="nav-dropdown">
+                <span class="nav-dropdown-toggle">
+                    Markets
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <div class="nav-dropdown-menu">
+                    <a href="{% if league_id %}/{{ league_id }}{% endif %}/market-dashboard" class="nav-dropdown-item">Dashboard</a>
+                    {% if league_id %}
+                    <a href="/{{ league_id }}/market-bins" class="nav-dropdown-item">Bins</a>
+                    {% for item in sport_nav_items if item.group == 'markets' %}
+                    <a href="{{ item.url }}" class="nav-dropdown-item">{{ item.label }}</a>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+      window.LEAGUE_ID = {{ league_id|tojson }};
+      window.LEAGUE_PREFIX = window.LEAGUE_ID ? ("/" + window.LEAGUE_ID) : "";
+      function switchLeague(newLeagueId) {
+        var path = window.location.pathname;
+        if (window.LEAGUE_ID) {
+          var newPath = path.replace(/^\/[^\/]+/, '/' + newLeagueId);
+        } else {
+          var newPath = '/' + newLeagueId + '/';
+        }
+        window.location.href = newPath + window.location.search;
+      }
+      (function() {
+        const _fetch = window.fetch ? window.fetch.bind(window) : null;
+        if (!_fetch) return;
+        window.fetch = function(input, init) {
+          if (typeof input === "string" && input.startsWith("/api/") && window.LEAGUE_PREFIX) {
+            input = window.LEAGUE_PREFIX + input;
+          }
+          return _fetch(input, init);
+        };
+      })();
+      (function() {
+        function prefixApiLinks(root) {
+          if (!root || !root.querySelectorAll || !window.LEAGUE_PREFIX) return;
+          root.querySelectorAll('a[href^="/api/"]').forEach(a => {
+            const href = a.getAttribute("href");
+            if (href && href.startsWith("/api/")) a.setAttribute("href", window.LEAGUE_PREFIX + href);
+          });
+          root.querySelectorAll('form[action^="/api/"]').forEach(f => {
+            const action = f.getAttribute("action");
+            if (action && action.startsWith("/api/")) f.setAttribute("action", window.LEAGUE_PREFIX + action);
+          });
+        }
+        document.addEventListener("DOMContentLoaded", () => {
+          prefixApiLinks(document);
+          const obs = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+              for (const n of m.addedNodes || []) {
+                if (n && n.nodeType === 1) prefixApiLinks(n);
+              }
+            }
+          });
+          obs.observe(document.body, { childList: true, subtree: true });
+        });
+      })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -194,6 +194,26 @@ def fail_job(
         logger.error(f"[JOBS] Exception in fail_job({job_id}): {e}")
 
 
+def get_running_job(job_type: str, league: Optional["BaseLeagueConfig"] = None) -> Optional[Dict]:
+    """Get the latest running job of a given type.
+
+    Args:
+        job_type: Type of job ('train', 'predict_all', etc.)
+        league: Optional league config for multi-league support
+
+    Returns:
+        Job document or None if no running job found
+    """
+    jobs_collection = _get_jobs_collection(league)
+    job = jobs_collection.find_one(
+        {"type": job_type, "status": "running"},
+        sort=[("created_at", -1)],
+    )
+    if job:
+        job["_id"] = str(job["_id"])
+    return job
+
+
 def get_job(job_id: str, league: Optional["BaseLeagueConfig"] = None) -> Optional[Dict]:
     """
     Get job by ID.

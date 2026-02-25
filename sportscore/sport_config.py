@@ -77,6 +77,12 @@ class BaseSportConfig:
         meta = _as_dict(_require(self.raw, "meta", self.config_path), "meta")
         return _as_str(_require(meta, "display_name", self.config_path), "meta.display_name")
 
+    @property
+    def outcome_type(self) -> str:
+        """Sport-level outcome type: ``"binary"`` or ``"3way"``."""
+        meta = self.raw.get("meta", {})
+        return meta.get("outcome_type", "binary")
+
     # --- Season defaults ---
 
     @property

@@ -1,6 +1,7 @@
 meta:
   sport_id: basketball
   display_name: Basketball
+  outcome_type: binary
 
 season:
   # Sport-level fallback for excluded game types.

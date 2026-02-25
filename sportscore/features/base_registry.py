@@ -91,7 +91,7 @@ class BaseFeatureRegistry:
 
     # --- Time periods (shared across sports) ---
 
-    VALID_TIME_PERIODS = {"season", "last_5", "last_10", "last_15", "last_20"}
+    VALID_TIME_PERIODS = {"season", "last_5", "last_10", "last_15", "last_20", "last_40"}
 
     # --- Separators ---
 

@@ -353,6 +353,12 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+const currentLeague = '{{ league_id }}';
+
+function apiUrl(path) {
+    return `/${currentLeague}${path}`;
+}
+
 let binsChart = null;
 let cumulativeChart = null;
 const dataCache = {};
@@ -456,7 +462,7 @@ async function loadBinsData(refresh = false) {
     if (refresh) params.set('refresh', 'true');
 
     try {
-        const response = await fetch(`/api/market/bins?${params.toString()}`);
+        const response = await fetch(apiUrl(`/api/market/bins?${params.toString()}`));
         const data = await response.json();
 
         if (!data.success) {

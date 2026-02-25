@@ -84,14 +84,24 @@ class EloCache:
         self.db = db
         self.league = league
 
-        # League scoping — filter all queries/writes by league when set
-        self._league_id = league.league_id if league else None
-
         # Collection resolution
         effective = collection_name
         if league is not None:
             effective = effective or league.collections.get("elo_cache")
-        self.collection = db[effective or DEFAULT_ELO_CACHE_COLLECTION]
+        resolved_collection = effective or DEFAULT_ELO_CACHE_COLLECTION
+        self.collection = db[resolved_collection]
+
+        # League scoping — only filter by league when the collection actually
+        # contains docs with a league field (i.e. a shared multi-league collection
+        # like soccer_elo_cache).  Per-league collections (e.g. cbb_cached_elo_ratings)
+        # won't have the field and league scoping would match zero docs.
+        if league:
+            has_league_field = self.collection.find_one(
+                {"league": {"$exists": True}}, {"_id": 1}
+            )
+            self._league_id = league.league_id if has_league_field else None
+        else:
+            self._league_id = None
 
         # Resolve ELO params: explicit kwarg > league config > hardcoded default
         if league is not None:

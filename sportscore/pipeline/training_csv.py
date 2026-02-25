@@ -4,6 +4,8 @@ Provides TrainingCSVManager — a reusable class that any sport's CLI can use
 for incremental column updates (--add --features) and season row replacement
 (--add --season) on existing training CSVs.
 
+Supports parallel processing via --workers / --chunk-size for all modes.
+
 Usage:
     from sportscore.pipeline.training_csv import TrainingCSVManager
 
@@ -19,7 +21,115 @@ Usage:
 import csv
 import fnmatch
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional
+
+
+def _render_progress(done, total, start_time, label="Processing"):
+    """Render a progress line to stdout."""
+    elapsed = time.time() - start_time
+    pct = done / total * 100 if total > 0 else 0
+    rate = done / elapsed if elapsed > 0 else 0
+    if rate > 0 and done < total:
+        eta_secs = int((total - done) / rate)
+        mins, secs = divmod(eta_secs, 60)
+        eta = f"{mins:02d}m {secs:02d}s"
+    else:
+        eta = "--:--"
+
+    bar_width = 30
+    filled = int(bar_width * pct / 100)
+    bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
+
+    print(
+        f"\r  [{bar}] {pct:5.1f}% | {done:,}/{total:,} | "
+        f"{rate:,.1f}/s | ETA {eta}",
+        end="", flush=True,
+    )
+
+
+def _process_items_parallel(items, compute_fn, workers, chunk_size, label="Processing"):
+    """Process items in parallel chunks using ThreadPoolExecutor.
+
+    Args:
+        items: List of items to process.
+        compute_fn: fn(item) -> result or None.
+        workers: Number of parallel workers.
+        chunk_size: Items per chunk.
+        label: Label for progress display.
+
+    Returns:
+        List of non-None results, preserving original order.
+    """
+    total = len(items)
+
+    if workers <= 1 or total == 0:
+        # Serial fallback
+        results = []
+        start = time.time()
+        for i, item in enumerate(items):
+            result = compute_fn(item)
+            if result is not None:
+                results.append(result)
+            if (i + 1) % 100 == 0:
+                _render_progress(i + 1, total, start, label)
+        if total >= 100:
+            _render_progress(total, total, start, label)
+            print()
+        return results
+
+    # Parallel processing
+    chunks = [items[i:i + chunk_size] for i in range(0, total, chunk_size)]
+    num_chunks = len(chunks)
+
+    lock = threading.Lock()
+    stats = {"done": 0, "start": time.time(), "last_render": 0.0}
+
+    def process_chunk(chunk):
+        chunk_results = []
+        for item in chunk:
+            result = compute_fn(item)
+            if result is not None:
+                chunk_results.append(result)
+            with lock:
+                stats["done"] += 1
+                now = time.time()
+                if now - stats["last_render"] >= 0.15:
+                    stats["last_render"] = now
+                    _render_progress(stats["done"], total, stats["start"], label)
+        return chunk_results
+
+    print(f"  {label}: {total:,} items, {num_chunks} chunks, {workers} workers")
+
+    ordered = [None] * num_chunks
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(process_chunk, chunk): idx
+            for idx, chunk in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                ordered[idx] = future.result()
+            except Exception as e:
+                print(f"\n  [ERROR] Chunk {idx} failed: {e}")
+                ordered[idx] = []
+
+    _render_progress(total, total, stats["start"], label)
+    print()
+
+    # Flatten in order
+    all_results = []
+    for chunk_results in ordered:
+        if chunk_results:
+            all_results.extend(chunk_results)
+
+    elapsed = time.time() - stats["start"]
+    rate = total / elapsed if elapsed > 0 else 0
+    print(f"  Completed: {len(all_results):,} results in {elapsed:.1f}s ({rate:,.1f}/s)")
+    return all_results
 
 
 class TrainingCSVManager:
@@ -51,7 +161,7 @@ class TrainingCSVManager:
 
     @staticmethod
     def add_arguments(parser):
-        """Add --add, --features, --exclude-features, --season to an argparse parser."""
+        """Add --add, --features, --exclude-features, --season, --workers, --chunk-size."""
         parser.add_argument(
             "--add", action="store_true",
             help="Add/update existing CSV: with --features updates columns, "
@@ -68,6 +178,14 @@ class TrainingCSVManager:
         parser.add_argument(
             "--season", type=str, default=None,
             help="Single season for add-mode (e.g., '2024-2025')",
+        )
+        parser.add_argument(
+            "--workers", type=int, default=1,
+            help="Number of parallel workers (default: 1 = serial)",
+        )
+        parser.add_argument(
+            "--chunk-size", type=int, default=500,
+            help="Items per chunk for parallel processing (default: 500)",
         )
 
     # ------------------------------------------------------------------
@@ -213,6 +331,61 @@ class TrainingCSVManager:
         return [c for c in all_cols if c not in exclude]
 
     # ------------------------------------------------------------------
+    # Full generation mode (parallel)
+    # ------------------------------------------------------------------
+
+    def generate_csv_parallel(
+        self,
+        items: List[dict],
+        compute_fn: Callable[[dict], Optional[dict]],
+        feature_names: List[str],
+        output_path: str,
+        workers: int = 1,
+        chunk_size: int = 500,
+    ) -> int:
+        """Generate a full training CSV with optional parallel processing.
+
+        Args:
+            items: List of game dicts to process.
+            compute_fn: fn(game_dict) -> row_dict (with meta+features+score+target)
+                        or None to skip.
+            feature_names: Feature columns for the CSV.
+            output_path: Where to write the CSV.
+            workers: Number of parallel workers (1 = serial).
+            chunk_size: Items per chunk for parallel processing.
+
+        Returns:
+            Number of rows written.
+        """
+        total = len(items)
+        print(f"\nProcessing {total:,} games...")
+
+        rows = _process_items_parallel(
+            items, compute_fn, workers, chunk_size, label="Generating features",
+        )
+
+        # Define column order
+        all_cols = (
+            self.meta_columns
+            + sorted(feature_names)
+            + self.score_columns
+            + self.target_columns
+        )
+
+        # Write CSV
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=all_cols, extrasaction='ignore')
+            writer.writeheader()
+            writer.writerows(rows)
+
+        print(f"  Total: {len(rows):,} games written to {output_path}")
+        print(f"  Columns: {len(all_cols)} ({len(self.meta_columns)} meta + "
+              f"{len(feature_names)} features + {len(self.score_columns)} score + "
+              f"{len(self.target_columns)} target)")
+        return len(rows)
+
+    # ------------------------------------------------------------------
     # Column-update mode (--add --features)
     # ------------------------------------------------------------------
 
@@ -223,6 +396,8 @@ class TrainingCSVManager:
         feature_names: List[str],
         seasons: Optional[List[str]] = None,
         output_path: Optional[str] = None,
+        workers: int = 1,
+        chunk_size: int = 500,
     ) -> int:
         """Column-update mode: load CSV, compute new features, merge columns, save.
 
@@ -232,6 +407,8 @@ class TrainingCSVManager:
             feature_names: Feature columns being added / updated.
             seasons: If set, only update rows whose season column matches.
             output_path: Defaults to *csv_path* (overwrite in place).
+            workers: Number of parallel workers (1 = serial).
+            chunk_size: Items per chunk for parallel processing.
 
         Returns:
             Number of rows updated.
@@ -273,20 +450,30 @@ class TrainingCSVManager:
         if updating:
             print(f"  Updating {len(updating)} existing feature columns")
 
-        # Compute features for each row
-        updated = 0
-        total = len(rows)
-        for i, row in enumerate(rows):
-            if seasons and row.get(self.season_column) not in seasons:
-                continue
+        # Filter to rows that need processing
+        if seasons:
+            season_set = set(seasons)
+            to_process = [(i, row) for i, row in enumerate(rows)
+                          if row.get(self.season_column) in season_set]
+        else:
+            to_process = list(enumerate(rows))
 
+        # Compute features (serial or parallel)
+        def _compute_for_row(idx_row):
+            idx, row = idx_row
             features = compute_fn(row)
-            if features:
-                row.update(features)
-                updated += 1
+            return (idx, features) if features else None
 
-            if updated > 0 and updated % 100 == 0:
-                print(f"  [{updated} rows updated] ({(i + 1) / total * 100:.1f}%)")
+        results = _process_items_parallel(
+            to_process, _compute_for_row, workers, chunk_size,
+            label="Computing features",
+        )
+
+        # Apply results back to rows
+        updated = 0
+        for idx, features in results:
+            rows[idx].update(features)
+            updated += 1
 
         # Write back
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -295,7 +482,7 @@ class TrainingCSVManager:
             writer.writeheader()
             writer.writerows(rows)
 
-        print(f"\n  {updated} rows updated, {len(all_columns)} columns -> {output_path}")
+        print(f"  {updated} rows updated, {len(all_columns)} columns -> {output_path}")
         return updated
 
     # ------------------------------------------------------------------

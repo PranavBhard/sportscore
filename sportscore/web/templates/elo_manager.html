@@ -411,6 +411,12 @@
 
 {% block scripts %}
 <script>
+    const currentLeague = '{{ league_id }}';
+
+    function apiUrl(path) {
+        return `/${currentLeague}${path}`;
+    }
+
     let pollInterval = null;
 
     function showAlert(message, type = 'info') {
@@ -452,7 +458,7 @@
         updateProgress(0, 'Starting Elo cache computation...');
 
         try {
-            const response = await fetch('/api/elo-cache/run', {
+            const response = await fetch(apiUrl('/api/elo-cache/run'), {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({seasons: seasons})
@@ -490,7 +496,7 @@
     function pollJobStatus(jobId) {
         pollInterval = setInterval(async () => {
             try {
-                const response = await fetch(`/api/jobs/${jobId}`);
+                const response = await fetch(apiUrl(`/api/jobs/${jobId}`));
                 const data = await response.json();
 
                 if (!data.success || !data.job) {
@@ -539,7 +545,7 @@
         if (!confirm(message)) return;
 
         try {
-            const response = await fetch('/api/elo-cache/clear', {
+            const response = await fetch(apiUrl('/api/elo-cache/clear'), {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({seasons: season ? [season] : null})
@@ -561,7 +567,7 @@
 
     async function refreshStats() {
         try {
-            const response = await fetch('/api/elo-cache/stats');
+            const response = await fetch(apiUrl('/api/elo-cache/stats'));
             const stats = await response.json();
 
             document.getElementById('totalRatings').textContent = stats.total_ratings?.toLocaleString() || '0';
@@ -575,7 +581,7 @@
 
     async function loadCurrentRatings() {
         try {
-            const response = await fetch('/api/elo-cache/current-ratings');
+            const response = await fetch(apiUrl('/api/elo-cache/current-ratings'));
             const data = await response.json();
 
             const container = document.getElementById('ratingsTableContainer');

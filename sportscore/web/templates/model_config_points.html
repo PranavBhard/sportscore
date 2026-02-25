@@ -102,10 +102,9 @@
                                            value="{{ feature }}"
                                            class="feature-checkbox"
                                            data-set="{{ set_name }}"
-                                           {% if feature in available_features %}checked{% endif %}
-                                           {% if feature not in available_features %}disabled title="Not available in training data"{% endif %}>
+                                           {% if feature in available_features %}checked{% endif %}>
                                     <span class="feature-name">{{ feature }}</span>
-                                    {% if feature not in available_features %}<span class="feature-unavailable-badge" title="Not in MASTER_TRAINING.csv">⚠</span>{% endif %}
+                                    {% if feature not in available_features %}<span class="feature-unavailable-badge" title="Not yet in MASTER_TRAINING.csv — generate first">⚠</span>{% endif %}
                                 </label>
                                 {% endfor %}
                             </div>
@@ -1081,6 +1080,12 @@
 </style>
 
 <script>
+const currentLeague = '{{ league_id }}';
+
+function apiUrl(path) {
+    return `/${currentLeague}${path}`;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('points-model-config-form');
     const trainBtn = document.getElementById('train-btn');
@@ -1143,7 +1148,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load and display saved configs
     async function loadConfigs() {
         try {
-            const response = await fetch('/api/points-model/configs');
+            const response = await fetch(apiUrl('/api/points-model/configs'));
             const data = await response.json();
 
             if (!data.success) {
@@ -1520,7 +1525,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     async function selectConfig(configId) {
         try {
-            const response = await fetch('/api/points-model/select-config', {
+            const response = await fetch(apiUrl('/api/points-model/select-config'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1864,7 +1869,7 @@ document.addEventListener('DOMContentLoaded', function() {
         trainingError.style.display = 'none';
         
         try {
-            const response = await fetch('/api/points-model/train', {
+            const response = await fetch(apiUrl('/api/points-model/train'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -2148,7 +2153,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load config into form
     window.loadConfigIntoForm = async function(configId) {
         try {
-            const response = await fetch('/api/points-model/configs');
+            const response = await fetch(apiUrl('/api/points-model/configs'));
             const data = await response.json();
             
             if (!data.success || !data.configs) {

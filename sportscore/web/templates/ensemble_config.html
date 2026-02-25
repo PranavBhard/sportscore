@@ -38,12 +38,7 @@
 
                     <div class="form-group" id="c-value-group">
                         <label for="meta-c-value">C-Value:</label>
-                        <select id="meta-c-value" name="meta_c_value">
-                            <option value="0.01">0.01</option>
-                            <option value="0.1" selected>0.1</option>
-                            <option value="1.0">1.0</option>
-                            <option value="10.0">10.0</option>
-                        </select>
+                        <input type="number" id="meta-c-value" name="meta_c_value" value="0.1" min="0.001" step="any" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                     </div>
 
                     <div class="form-group">
@@ -1122,6 +1117,12 @@
 </style>
 
 <script>
+const currentLeague = '{{ league_id }}';
+
+function apiUrl(path) {
+    return `/${currentLeague}${path}`;
+}
+
 // Feature sets data (from master CSV)
 const FEATURE_SETS = {{ feature_sets | tojson | safe }};
 const FEATURE_SET_DESCRIPTIONS = {{ feature_set_descriptions | tojson | safe }};
@@ -1171,7 +1172,7 @@ async function loadEnsembles() {
     document.getElementById('ensembles-list').innerHTML = '';
 
     try {
-        const response = await fetch('/api/ensembles');
+        const response = await fetch(apiUrl('/api/ensembles'));
         const data = await response.json();
 
         if (data.success) {
@@ -1189,7 +1190,7 @@ async function loadEnsembles() {
 
 async function loadBaseModels() {
     try {
-        const response = await fetch('/api/ensembles/available-base-models');
+        const response = await fetch(apiUrl('/api/ensembles/available-base-models'));
         const data = await response.json();
 
         if (data.success) {
@@ -1588,6 +1589,7 @@ function loadEnsembleIntoForm(ensemble) {
     document.getElementById('ensemble-name').value = ensemble.name || '';
     // Set meta-model config
     document.getElementById('meta-model-type').value = ensemble.model_type || 'LogisticRegression';
+    document.getElementById('meta-c-value').value = ensemble.best_c_value ?? 0.1;
     onMetaModelTypeChange();
 
     // Set stacking mode from saved value (fallback to inference for old ensembles)
@@ -1739,7 +1741,7 @@ function startNewEnsemble() {
 async function saveEnsembleConfig(config) {
     /** Shared save helper: validate then create or update. Returns ensemble_id or null. */
     // Validate
-    const valResp = await fetch('/api/ensembles/validate', {
+    const valResp = await fetch(apiUrl('/api/ensembles/validate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
@@ -1752,8 +1754,8 @@ async function saveEnsembleConfig(config) {
 
     // Save: update existing or create new
     const saveUrl = selectedEnsembleId
-        ? `/api/ensembles/${selectedEnsembleId}`
-        : '/api/model-configs/create-ensemble';
+        ? apiUrl(`/api/ensembles/${selectedEnsembleId}`)
+        : apiUrl('/api/model-configs/create-ensemble');
     const saveMethod = selectedEnsembleId ? 'PUT' : 'POST';
 
     const saveResp = await fetch(saveUrl, {
@@ -1788,7 +1790,7 @@ async function startTraining(config, ensembleId) {
 
     showProgress('Starting ensemble training...');
 
-    const response = await fetch('/api/model-config/train', {
+    const response = await fetch(apiUrl('/api/model-config/train'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
@@ -1853,7 +1855,7 @@ async function onTertiaryAction() {
         closeEnsembleModal();
         showProgress('Retraining meta-model...');
 
-        const response = await fetch(`/api/ensembles/${selectedEnsembleId}/retrain-meta`, {
+        const response = await fetch(apiUrl(`/api/ensembles/${selectedEnsembleId}/retrain-meta`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(gatherFormConfig())
@@ -1916,7 +1918,7 @@ async function removeBaseModel(ensembleId, baseModelId) {
             return;
         }
 
-        const response = await fetch(`/api/ensembles/${ensembleId}`, {
+        const response = await fetch(apiUrl(`/api/ensembles/${ensembleId}`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ensemble_models: newModels })
@@ -1940,7 +1942,7 @@ function editEnsemble(ensembleId) {
 
 async function selectEnsemble(ensembleId) {
     try {
-        const response = await fetch(`/api/model-configs/${ensembleId}`, {
+        const response = await fetch(apiUrl(`/api/model-configs/${ensembleId}`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ selected: true })
@@ -1963,7 +1965,7 @@ async function deleteEnsemble(ensembleId) {
     }
 
     try {
-        const response = await fetch(`/api/model-configs/${ensembleId}`, {
+        const response = await fetch(apiUrl(`/api/model-configs/${ensembleId}`), {
             method: 'DELETE'
         });
         const data = await response.json();
@@ -2011,7 +2013,7 @@ function pollJobProgress() {
         }
 
         try {
-            const response = await fetch(`/api/jobs/${currentJobId}`);
+            const response = await fetch(apiUrl(`/api/jobs/${currentJobId}`));
             const data = await response.json();
 
             if (data.success) {

@@ -62,6 +62,20 @@ def register_context(app):
         g.db = db
         g.services = services
 
+        # Fix cross-sport route conflicts: multiple sport blueprints register
+        # the same URL patterns (e.g. /<league_id>/api/predict). Flask matches
+        # whichever blueprint was registered first. If the matched endpoint
+        # belongs to the wrong sport, reroute to the correct one.
+        endpoint = request.endpoint
+        if endpoint and "." in endpoint:
+            bp_name, view_name = endpoint.split(".", 1)
+            if bp_name != sport_name and bp_name in plugins:
+                correct_endpoint = f"{sport_name}.{view_name}"
+                if correct_endpoint in current_app.view_functions:
+                    return current_app.view_functions[correct_endpoint](
+                        **request.view_args
+                    )
+
     @app.context_processor
     def inject_template_globals():
         """Inject league context + nav data into all templates."""

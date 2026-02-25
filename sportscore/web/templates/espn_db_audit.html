@@ -235,6 +235,12 @@
 
 {% block scripts %}
 <script>
+  const currentLeague = '{{ league_id }}';
+
+  function apiUrl(path) {
+      return `/${currentLeague}${path}`;
+  }
+
   let activeJobId = null;
   let pollTimer = null;
   let lastResult = null;
@@ -289,7 +295,7 @@
   }
 
   async function pollJob(jobId) {
-    const res = await fetch(`/api/jobs/${jobId}`);
+    const res = await fetch(apiUrl(`/api/jobs/${jobId}`));
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Job lookup failed');
     return data.job;
@@ -465,7 +471,7 @@
     setProgress(true, 1, 'Starting audit…');
     try {
       const payload = getFormData();
-      const data = await postJson('/api/espn-db-audit/run', payload);
+      const data = await postJson(apiUrl('/api/espn-db-audit/run'), payload);
       setAlert('Audit started. Polling…', 'info');
       startPolling(data.job_id);
     } catch (e) {
@@ -483,7 +489,7 @@
       // These are available in the API; keep UI simple for now
       payload.team_only = false;
       payload.players_only = false;
-      const data = await postJson('/api/espn-db-audit/pull', payload);
+      const data = await postJson(apiUrl('/api/espn-db-audit/pull'), payload);
       setAlert('Pull started. Polling…', 'info');
       startPolling(data.job_id);
     } catch (e) {
@@ -525,7 +531,7 @@
         games: missingGames.map(g => ({ game_id: g.game_id, et_date: g.et_date })),
         dry_run: document.getElementById('dry_run').checked
       };
-      const data = await postJson('/api/espn-db-audit/pull-by-ids', payload);
+      const data = await postJson(apiUrl('/api/espn-db-audit/pull-by-ids'), payload);
       setAlert(`Pull started for ${data.game_count} game(s). Polling…`, 'info');
       startPolling(data.job_id);
     } catch (e) {
@@ -544,7 +550,7 @@
 
     for (const { type, label } of jobTypes) {
       try {
-        const res = await fetch(`/api/jobs/running/${type}`);
+        const res = await fetch(apiUrl(`/api/jobs/running/${type}`));
         const data = await res.json();
         if (data.success && data.job) {
           setAlert(`Found running ${label} job. Resuming progress…`, 'info');

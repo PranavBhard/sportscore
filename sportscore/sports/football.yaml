@@ -1,6 +1,7 @@
 meta:
   sport_id: football
   display_name: Football
+  outcome_type: binary
 
 season:
   # Sport-level fallback for excluded game types.

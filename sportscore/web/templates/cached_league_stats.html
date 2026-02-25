@@ -383,6 +383,12 @@
 
 {% block scripts %}
 <script>
+    const currentLeague = '{{ league_id }}';
+
+    function apiUrl(path) {
+        return `/${currentLeague}${path}`;
+    }
+
     let pollInterval = null;
 
     function showAlert(message, type = 'info') {
@@ -439,7 +445,7 @@
         updateProgress(0, 'Starting cache job…');
 
         try {
-            const response = await fetch('/api/cached-league-stats/run', {
+            const response = await fetch(apiUrl('/api/cached-league-stats/run'), {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -474,7 +480,7 @@
         updateProgress(0, 'Starting full recache…');
 
         try {
-            const response = await fetch('/api/cached-league-stats/run', {
+            const response = await fetch(apiUrl('/api/cached-league-stats/run'), {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -502,7 +508,7 @@
     function pollJobStatus(jobId) {
         pollInterval = setInterval(async () => {
             try {
-                const response = await fetch(`/api/jobs/${jobId}`);
+                const response = await fetch(apiUrl(`/api/jobs/${jobId}`));
                 const data = await response.json();
 
                 if (!data.success || !data.job) {
@@ -570,7 +576,7 @@
 
     async function refreshStatus() {
         try {
-            const response = await fetch('/api/cached-league-stats/stats');
+            const response = await fetch(apiUrl('/api/cached-league-stats/stats'));
             const data = await response.json();
             if (!data.success) {
                 showAlert(data.error || 'Failed to refresh status', 'error');

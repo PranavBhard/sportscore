@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ league.display_name if league else 'Sportscore' }} Predictions{% endblock %}</title>
+    {% if league and league.logo_url %}
+    <link rel="icon" type="image/png" href="{{ league.logo_url }}">
+    {% endif %}
     <style>
         * {
             margin: 0;

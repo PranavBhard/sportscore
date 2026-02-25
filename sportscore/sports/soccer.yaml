@@ -1,6 +1,7 @@
 meta:
   sport_id: soccer
   display_name: Soccer
+  outcome_type: 3way
 
 season:
   default_exclude_game_types:

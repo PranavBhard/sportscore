@@ -226,10 +226,9 @@
                                        name="modal_features"
                                        value="{{ feature }}"
                                        class="feature-checkbox modal-feature-checkbox"
-                                       data-set="{{ set_name }}"
-                                       {% if feature not in available_features %}disabled title="Not available in training data"{% endif %}>
+                                       data-set="{{ set_name }}">
                                 <span class="feature-name">{{ feature }}</span>
-                                {% if feature not in available_features %}<span class="feature-unavailable-badge" title="Not in MASTER_TRAINING.csv">⚠</span>{% endif %}
+                                {% if feature not in available_features %}<span class="feature-unavailable-badge" title="Not yet in MASTER_TRAINING.csv — generate first">⚠</span>{% endif %}
                             </label>
                             {% endfor %}
                         </div>
@@ -238,15 +237,10 @@
                 </div>
             </div>
 
-            <!-- C-Values -->
+            <!-- C-Value -->
             <div class="modal-field" id="modal-c-values-section">
-                <label>C-Values</label>
-                <div class="checkbox-group" style="flex-direction: row; flex-wrap: wrap;">
-                    <label><input type="checkbox" name="modal_c_values" value="0.01"> 0.01</label>
-                    <label><input type="checkbox" name="modal_c_values" value="0.1" checked> 0.1</label>
-                    <label><input type="checkbox" name="modal_c_values" value="1.0" checked> 1.0</label>
-                    <label><input type="checkbox" name="modal_c_values" value="10.0"> 10.0</label>
-                </div>
+                <label for="modal-c-value">C-Value (regularization)</label>
+                <input type="number" id="modal-c-value" value="0.1" min="0.001" step="any" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
             </div>
 
             <!-- Min Games Played -->
@@ -1804,10 +1798,8 @@ function openCreateModal() {
     document.querySelectorAll('input[name="modal_feature_sets"]').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
     document.querySelectorAll('input[name="modal_features"]').forEach(cb => { cb.checked = false; });
 
-    // Reset C-values to defaults
-    document.querySelectorAll('input[name="modal_c_values"]').forEach(cb => {
-        cb.checked = (cb.value === '0.1' || cb.value === '1.0');
-    });
+    // Reset C-value to default
+    document.getElementById('modal-c-value').value = 0.1;
 
     // Reset other fields
     document.getElementById('modal-min-games-played').value = 15;
@@ -1844,16 +1836,14 @@ function openEditModal(configId) {
     // Update set checkbox states
     document.querySelectorAll('#config-modal .modal-set-checkbox').forEach(cb => updateModalSetCheckboxState(cb.value));
 
-    // Set C-values
-    let cValues = [];
-    if (config.c_values && Array.isArray(config.c_values)) {
-        cValues = config.c_values.map(v => parseFloat(v));
+    // Set C-value
+    let cVal = 0.1;
+    if (config.c_values && Array.isArray(config.c_values) && config.c_values.length > 0) {
+        cVal = parseFloat(config.c_values[0]);
     } else if (config.best_c_value != null) {
-        cValues = [parseFloat(config.best_c_value)];
+        cVal = parseFloat(config.best_c_value);
     }
-    document.querySelectorAll('input[name="modal_c_values"]').forEach(cb => {
-        cb.checked = cValues.includes(parseFloat(cb.value));
-    });
+    document.getElementById('modal-c-value').value = cVal;
 
     // Set other fields
     document.getElementById('modal-min-games-played').value = config.min_games_played ?? 15;
@@ -1884,7 +1874,7 @@ function getModalFormData() {
     const name = document.getElementById('modal-config-name').value.trim();
     const modelType = document.getElementById('modal-model-type').value;
     const features = Array.from(document.querySelectorAll('input[name="modal_features"]:checked')).map(cb => cb.value);
-    const cValues = Array.from(document.querySelectorAll('input[name="modal_c_values"]:checked')).map(cb => parseFloat(cb.value));
+    const cValues = [parseFloat(document.getElementById('modal-c-value').value) || 0.1];
     const minGamesPlayed = parseInt(document.getElementById('modal-min-games-played').value) || 15;
     const excludeSeasonsStr = document.getElementById('modal-exclude-seasons').value.trim();
     const excludeSeasons = excludeSeasonsStr ? excludeSeasonsStr.split(',').map(s => parseInt(s.trim())).filter(s => !isNaN(s)) : null;
@@ -2482,7 +2472,7 @@ function createHistoryItem(config) {
                 <button class="btn btn-small" onclick="event.stopPropagation(); cloneConfig('${config._id}')" title="Clone this config">Clone</button>
                 ${config.ensemble ? `<button class="btn btn-small" onclick="event.stopPropagation(); showEditEnsembleModal('${config._id}')" title="Edit meta-model features and retrain">Edit Meta</button>` : ''}
                 ${config.features_ranked && Array.isArray(config.features_ranked) && config.features_ranked.length > 0 ? `<button class="btn btn-small" onclick="event.stopPropagation(); showFeatureTree('${config._id}')">Feature Tree</button>` : ''}
-                ${config.training_csv ? `<a class="btn btn-small" href="/api/model-configs/${config._id}/download">Download CSV</a>` : ''}
+                ${config.training_csv ? `<a class="btn btn-small" href="${apiUrl(`/api/model-configs/${config._id}/download`)}">Download CSV</a>` : ''}
                 <button class="btn btn-small btn-danger" onclick="event.stopPropagation(); deleteConfig('${config._id}')">Delete</button>
                 <button class="config-copy-btn" onclick="copyClassifierConfigToClipboard('${config._id}', this, event)" title="Copy config info">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2843,7 +2833,6 @@ function copyClassifierConfigToClipboard(configId, button, event) {
     }
 
     // Feature rankings by F-Score with Importance scores on the same line
-    // (skip F-scores for LogisticRegression — they use L1/L2, not univariate selection)
     const isLR = config.model_type === 'LogisticRegression';
     if (!isLR && config.features_ranked && Array.isArray(config.features_ranked) && config.features_ranked.length > 0) {
         // Build a lookup map for importance scores by feature name
@@ -2870,6 +2859,23 @@ function copyClassifierConfigToClipboard(configId, button, event) {
             }
             if (importanceStr !== null) {
                 line += ` (Importance: ${importanceStr})`;
+            }
+            text += line + `\n`;
+        });
+        text += `\n`;
+    }
+
+    // Feature rankings by Importance Score (standalone section)
+    if (config.features_ranked_by_importance && Array.isArray(config.features_ranked_by_importance) && config.features_ranked_by_importance.length > 0) {
+        text += `--- Feature Rankings (ordered by Importance Score, ${config.features_ranked_by_importance.length} total) ---\n`;
+        config.features_ranked_by_importance.forEach((f) => {
+            const rank = f.rank || 0;
+            const name = f.name || 'Unknown';
+            const score = f.score !== null && f.score !== undefined ? (typeof f.score === 'number' ? f.score.toFixed(6) : f.score) : null;
+
+            let line = `${rank.toString().padStart(3, ' ')}. ${name}`;
+            if (score !== null) {
+                line += ` (${score})`;
             }
             text += line + `\n`;
         });

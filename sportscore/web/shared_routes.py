@@ -214,6 +214,12 @@ def register_shared_routes(app):
                 has_update = True
             if "best_c_value" in data:
                 doc["best_c_value"] = data["best_c_value"]; has_update = True
+            elif "c_values" in data and data["c_values"]:
+                try:
+                    doc["best_c_value"] = float(data["c_values"][0])
+                except Exception:
+                    doc["best_c_value"] = data["c_values"][0]
+                has_update = True
             for key in ("use_time_calibration", "calibration_method", "begin_year",
                         "evaluation_year", "min_games_played"):
                 if key in data:
@@ -1103,6 +1109,127 @@ def register_shared_routes(app):
         except Exception as e:
             import traceback; traceback.print_exc()
             return jsonify(success=False, error=str(e)), 500
+
+    @app.route("/<league_id>/api/portfolio/game-positions", methods=["GET"])
+    def api_portfolio_game_positions(league_id=None):
+        """Get portfolio positions, orders, and fills matched to games on a date."""
+        from datetime import timezone as _tz
+
+        date_str = request.args.get("date")
+        if not date_str:
+            return jsonify(success=False, error="Missing date parameter"), 400
+        try:
+            game_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify(success=False, error="Invalid date format"), 400
+
+        # Check Kalshi credentials
+        api_key = os.environ.get("KALSHI_API_KEY")
+        pk_dir = os.environ.get("KALSHI_PRIVATE_KEY_DIR")
+        if not api_key or not pk_dir:
+            return jsonify(success=True, available=False,
+                           message="Kalshi API credentials not configured")
+
+        # Create authenticated connector
+        try:
+            from sportscore.market import MarketConnector
+            connector = MarketConnector({"KALSHI_API_KEY": api_key,
+                                         "KALSHI_PRIVATE_KEY_DIR": pk_dir})
+        except Exception:
+            return jsonify(success=True, available=False,
+                           message="Failed to connect to Kalshi API")
+
+        # Get games for date
+        league = g.league
+        games_coll = league.collections.get("games", "games")
+        db = g.db
+        query = {"date": date_str}
+        # Only filter by league field if the collection is shared across
+        # leagues (e.g. soccer's "soccer_games").  Sport apps that use
+        # per-league collections (e.g. basketball's "cbb_stats_games")
+        # don't store a league field on game documents.
+        lid = getattr(league, "league_id", None)
+        if lid and lid not in games_coll:
+            query["league"] = lid
+        game_list = list(db[games_coll].find(
+            query,
+            {"game_id": 1, "homeTeam.name": 1, "awayTeam.name": 1},
+        ))
+        if not game_list:
+            return jsonify(success=True, available=True, positions={},
+                           message="No games for this date")
+
+        # Market config
+        mc = (league.raw or {}).get("market", {})
+        series_ticker = mc.get("series_ticker", "")
+        spread_series = mc.get("spread_series_ticker", "")
+
+        if not series_ticker:
+            return jsonify(success=True, available=False,
+                           message="No market series_ticker configured")
+
+        # Fetch portfolio data with short-lived cache
+        from sportscore.market import SimpleCache
+        _cache = SimpleCache(default_ttl=60)
+        _TTL = 60
+
+        def _fetch(key, method, **kwargs):
+            val = _cache.get(key)
+            if val is None:
+                try:
+                    val = method(**kwargs)
+                except Exception:
+                    val = []
+                _cache.set(key, val, ttl=_TTL)
+            return val if isinstance(val, list) else val
+
+        all_positions = _fetch(
+            "gp_pos", lambda: connector.get_positions(limit=200).get("market_positions", []))
+        min_ts = int((datetime.now(_tz.utc).timestamp() - 86400) * 1000)
+        all_fills = _fetch(
+            "gp_fills", lambda: connector.get_fills(min_ts=min_ts, limit=200).get("fills", []))
+        all_orders = _fetch(
+            "gp_orders", lambda: connector.get_orders(status="resting", limit=200).get("orders", []))
+        sett_ts = int((datetime.combine(game_date, datetime.min.time()).timestamp() - 86400) * 1000)
+        all_settlements = _fetch(
+            f"gp_sett:{date_str}",
+            lambda: connector.get_settlements(min_ts=sett_ts, limit=200).get("settlements", []))
+
+        # Filter to this sport's tickers
+        def matches(item):
+            t = item.get("ticker", "") or item.get("event_ticker", "")
+            if series_ticker and t.startswith(series_ticker):
+                return True
+            if spread_series and t.startswith(spread_series):
+                return True
+            if "MULTIGAME" in t.upper():
+                return True
+            return False
+
+        all_positions = [p for p in all_positions if matches(p)]
+        all_fills = [f for f in all_fills if matches(f)]
+        all_orders = [o for o in all_orders if matches(o)]
+        all_settlements = [s for s in all_settlements if matches(s)]
+
+        # Match to games
+        from sportscore.market.game_markets import match_portfolio_to_games
+        result = match_portfolio_to_games(
+            games=game_list,
+            positions=all_positions,
+            fills=all_fills,
+            orders=all_orders,
+            settlements=all_settlements,
+            game_date=game_date,
+            league=league,
+        )
+
+        return jsonify(
+            success=True,
+            available=True,
+            date=date_str,
+            positions=result.game_data,
+            fetched_at=datetime.now(_tz.utc).isoformat(),
+        )
 
     # ==================================================================
     # Elo / Cache API (generic — uses sportscore CLI under the hood)

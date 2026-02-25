@@ -1,6 +1,7 @@
 meta:
   sport_id: baseball
   display_name: Baseball
+  outcome_type: binary
 
 season:
   default_exclude_game_types:
